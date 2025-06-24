@@ -1,0 +1,19 @@
+stages:
+  - build
+
+variables:
+  ANDROID_SDK_ROOT: "/opt/android-sdk-linux" # Update the Android SDK path for the new image
+
+build_android:
+  image: ghcr.io/cirruslabs/flutter:3.32.4 # Use the latest recommended Flutter image
+  stage: build
+  script:
+    - flutter doctor
+    - flutter clean
+    - flutter pub get
+    - flutter build apk --release
+  artifacts:
+    paths:
+      - build/app/outputs/flutter-apk/app-release.apk # Path to the generated APK
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"' # Run this job only on the 'main' branch
