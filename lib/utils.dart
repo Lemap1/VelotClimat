@@ -1,8 +1,10 @@
 import 'dart:io';
 
+import 'package:archive/archive.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:share_plus/share_plus.dart';
 
 class Utils {
   static String? csvPath;
@@ -94,5 +96,75 @@ class Utils {
     }
 
     return csvPath!;
+  }
+
+  /// Generates a unique CSV file path using the device name and current timestamp.
+  static Future<String> generateCsvFilePath(String deviceName) async {
+    Directory? directory;
+    if (Platform.isAndroid) {
+      directory = await getExternalStorageDirectory();
+    } else {
+      directory = await getApplicationDocumentsDirectory();
+    }
+    if (directory == null) {
+      throw Exception("Could not get application directory for CSV storage.");
+    }
+    // Sanitize device name for file system
+    final safeDeviceName = deviceName.replaceAll(RegExp(r'[^a-zA-Z0-9_]'), '_');
+    final timestamp = DateTime.now().toIso8601String().replaceAll(':', '-');
+    return '${directory.path}/${safeDeviceName}_$timestamp.csv';
+  }
+
+  /// Generates a unique CSV file path using the device name and current timestamp.
+  static Future<List<File>> getAllCsvFiles() async {
+    Directory? directory;
+    if (Platform.isAndroid) {
+      directory = await getExternalStorageDirectory();
+    } else {
+      directory = await getApplicationDocumentsDirectory();
+    }
+    if (directory == null) {
+      throw Exception("Could not get application directory for CSV storage.");
+    }
+
+    return directory.listSync().whereType<File>().where((file) {
+      return file.path.endsWith('.csv');
+    }).toList();
+  }
+
+  static Future<File?> zipAllCsv() async {
+    List<File> allCsvFiles = await getAllCsvFiles();
+    //use archive plugin to zip all csv files
+    if (allCsvFiles.isEmpty) {
+      return null;
+    } else {
+      final zipFile = File('${allCsvFiles.first.parent.path}/sensor_logs.zip');
+      final archive = Archive();
+
+      for (var file in allCsvFiles) {
+        final bytes = await file.readAsBytes();
+        archive.addFile(
+          ArchiveFile(file.path.split('/').last, bytes.length, bytes),
+        );
+      }
+
+      final zipData = ZipEncoder().encode(archive);
+      await zipFile.writeAsBytes(zipData!);
+      return zipFile;
+    }
+  }
+
+  /// Displays a SnackBar message at the bottom of the screen.
+  static void showSnackBar(String message, BuildContext context) {
+    if (!context.mounted) {
+      debugPrint(
+        'UI: SnackBar message "$message" not shown, widget not mounted.',
+      );
+      return; // Ensure widget is still mounted
+    }
+    debugPrint('UI: Showing SnackBar: $message');
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), duration: const Duration(seconds: 3)),
+    );
   }
 }

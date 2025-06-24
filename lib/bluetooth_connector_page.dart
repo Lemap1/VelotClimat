@@ -5,13 +5,13 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:sensor_logging/widgets/delete_files_button.dart';
 import 'package:sensor_logging/utils.dart';
-import 'package:share_plus/share_plus.dart'; // For sharing the generated CSV file
 import 'package:flutter_background_service/flutter_background_service.dart';
+import 'package:sensor_logging/widgets/share_data_button.dart';
 
 class BluetoothConnectorPage extends StatefulWidget {
-  final String? csvFilePath;
-  const BluetoothConnectorPage({super.key, required this.csvFilePath});
+  const BluetoothConnectorPage({super.key});
 
   @override
   State<BluetoothConnectorPage> createState() => _BluetoothConnectorPageState();
@@ -37,6 +37,8 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
   // Subscription to listen for changes in the Bluetooth adapter state
   StreamSubscription<BluetoothAdapterState>? _adapterStateSubscription;
 
+  String? _currentCsvFilePath; // Track the current session's CSV file path
+
   @override
   void initState() {
     super.initState();
@@ -58,7 +60,7 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
       });
       // If Bluetooth is off and the service is running, stop the logging gracefully.
       if (state != BluetoothAdapterState.on && _isServiceRunning) {
-        _showSnackBar('Bluetooth is off. Stopping logging.');
+        Utils.showSnackBar('Bluetooth is off. Stopping logging.', context);
         _stopLogging(); // Automatically stop if Bluetooth turns off
       }
     });
@@ -129,32 +131,18 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
     super.dispose();
   }
 
-  /// Displays a SnackBar message at the bottom of the screen.
-  void _showSnackBar(String message) {
-    if (!mounted) {
-      debugPrint(
-        'UI: SnackBar message "$message" not shown, widget not mounted.',
-      );
-      return; // Ensure widget is still mounted
-    }
-    debugPrint('UI: Showing SnackBar: $message');
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), duration: const Duration(seconds: 3)),
-    );
-  }
-
   /// Initiates the logging process.
   /// This includes requesting permissions, checking Bluetooth state, and starting the background service.
   Future<void> _startLogging() async {
     debugPrint('UI: Start Logging button pressed.');
-    // Request permissions again, just in case they were revoked or not granted initially.
     await Utils.requestPermissions();
     debugPrint('UI: Permissions re-checked.');
 
     // Perform pre-checks before attempting to start the service:
     if (Platform.isAndroid && !await Permission.notification.isGranted) {
-      _showSnackBar(
+      Utils.showSnackBar(
         'Notification permission is required to run in the background.',
+        context,
       );
       debugPrint('UI: Notification permission denied.');
       return;
@@ -162,8 +150,9 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
     // Check for either LocationAlways or LocationWhenInUse for GPS logging.
     if (!(await Permission.locationAlways.isGranted ||
         await Permission.locationWhenInUse.isGranted)) {
-      _showSnackBar(
+      Utils.showSnackBar(
         'Location permission (Always or While in Use) is required for GPS logging.',
+        context,
       );
       debugPrint('UI: Location permission denied.');
       return;
@@ -175,7 +164,10 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
     debugPrint('UI: Current Bluetooth adapter state: $currentBluetoothState');
 
     if (currentBluetoothState != BluetoothAdapterState.on) {
-      _showSnackBar('Bluetooth is OFF. Attempting to turn on Bluetooth...');
+      Utils.showSnackBar(
+        'Bluetooth is OFF. Attempting to turn on Bluetooth...',
+        context,
+      );
       debugPrint('UI: Bluetooth is OFF, attempting to turn on...');
       await FlutterBluePlus.turnOn(); // Attempt to turn on Bluetooth programmatically
 
@@ -187,14 +179,16 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
             .timeout(const Duration(seconds: 10)); // Max 10 seconds to turn on
         debugPrint('UI: Bluetooth adapter successfully turned ON.');
       } on TimeoutException {
-        _showSnackBar(
+        Utils.showSnackBar(
           'Bluetooth did not turn on in time. Please enable it manually.',
+          context,
         );
         debugPrint('UI: Bluetooth did not turn on within timeout.');
         return;
       } catch (e) {
-        _showSnackBar(
+        Utils.showSnackBar(
           'Error turning on Bluetooth: $e. Please enable it manually.',
+          context,
         );
         debugPrint('UI: Error turning on Bluetooth: $e');
         return;
@@ -203,8 +197,9 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
       if (currentBluetoothState != BluetoothAdapterState.on) {
         // This case should ideally not be hit if the timeout and where clause work,
         // but as a final safeguard.
-        _showSnackBar(
+        Utils.showSnackBar(
           'Bluetooth is still off despite attempt. Please enable it manually.',
+          context,
         );
         debugPrint(
           'UI: Bluetooth state check failed even after turnOn attempt.',
@@ -215,16 +210,25 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
 
     final String deviceName = _deviceNameController.text.trim();
     if (deviceName.isEmpty) {
-      _showSnackBar('VC_SENS_XXXXXX');
+      Utils.showSnackBar('VC_SENS_XXXXXX', context);
       debugPrint('UI: Device name is empty.');
       return;
     }
+
+    // Generate a new CSV file path for this session
+    final csvFilePath = await Utils.generateCsvFilePath(deviceName);
+    setState(() {
+      _currentCsvFilePath = csvFilePath;
+    });
 
     final service = FlutterBackgroundService();
     var isRunning = await service.isRunning();
     if (isRunning) {
       // If service is already running, stop it gracefully before restarting to ensure a clean start.
-      _showSnackBar('Stopping existing service before restart...');
+      Utils.showSnackBar(
+        'Stopping existing service before restart...',
+        context,
+      );
       debugPrint('UI: Service already running, invoking stopService...');
       service.invoke('stopService');
       // Wait until the service is really stopped
@@ -252,7 +256,7 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
       ); // Request to keep the service in foreground mode
       service.invoke('startLogging', {
         'deviceName': deviceName,
-        'csvFilePath': widget.csvFilePath, // Pass the path!
+        'csvFilePath': csvFilePath, // Pass the new path!
       }); // Send command with device name
       debugPrint(
         'UI: Background service started and startLogging command sent.',
@@ -262,10 +266,10 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
         _isServiceRunning = true;
         _connectionStatus = 'Starting Service...';
       });
-      _showSnackBar('Logging started.');
+      Utils.showSnackBar('Logging started.', context);
     } catch (e) {
       // Handle potential errors during service startup (e.g., permissions not granted)
-      _showSnackBar('Failed to start service: ${e.toString()}');
+      Utils.showSnackBar('Failed to start service: ${e.toString()}', context);
       debugPrint('UI: Failed to start service: $e');
       setState(() {
         _isServiceRunning = false;
@@ -283,14 +287,14 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
       _connectionStatus = 'Stopped';
     });
 
-    _showSnackBar('Logging stopped.');
+    Utils.showSnackBar('Logging stopped.', context);
   }
 
   /// Reads the latest log entries from the CSV file and updates the UI display.
   Future<void> _readLatestCsvLines() async {
-    if (widget.csvFilePath == null) return;
+    if (_currentCsvFilePath == null) return;
     debugPrint('UI: Reading latest CSV lines...');
-    final file = File(widget.csvFilePath ?? "default.csv");
+    final file = File(_currentCsvFilePath!);
     if (!await file.exists()) {
       setState(() => _csvLines = ['No log data yet.']);
       debugPrint('UI: CSV file does not exist.');
@@ -367,7 +371,7 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Bluetooth & GPS Logger'), // <-- FR
+        title: const Text('VéloClimat'), // <-- FR
         elevation: 4, // Add a slight shadow to the app bar for depth
       ),
       body: SingleChildScrollView(
@@ -456,38 +460,15 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
               ),
             ),
             const SizedBox(height: 15),
-
-            // Share Log File Button
-            OutlinedButton.icon(
-              onPressed: () async {
-                if (await File(widget.csvFilePath ?? "default.csv").exists()) {
-                  try {
-                    await Share.shareXFiles([
-                      XFile(widget.csvFilePath ?? "default.csv"),
-                    ], text: 'Données capteur'); // Use shareXFiles for XFile
-                  } catch (e) {
-                    _showSnackBar('Erreur lors du partage : $e');
-                  }
-                } else {
-                  _showSnackBar('Fichier non trouvé.');
-                }
-              },
-              icon: const Icon(
-                Icons.share,
-                color: Colors.blueAccent,
-              ), // Share icon
-              label: const Text(
-                'Partager le fichier',
-                style: TextStyle(fontSize: 16, color: Colors.blueAccent),
-              ),
-              style: OutlinedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 15),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                side: BorderSide(color: Colors.blueAccent), // Blue border
-              ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                DeleteFilesButton(),
+                const SizedBox(width: 16),
+                ShareDataButton(),
+              ],
             ),
+
             const SizedBox(height: 25),
 
             // Live Status Section

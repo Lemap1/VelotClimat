@@ -19,7 +19,6 @@ import 'package:sensor_logging/utils.dart';
 // These are example UUIDs for a generic Environmental Sensing Service and a custom characteristic.
 final Guid SERVICE_UUID = Guid("181A");
 final Guid CHARACTERISTIC_UUID = Guid("FF01");
-String? csvPath;
 
 /// Initializes the background service. This sets up the Android and iOS configurations.
 /// It also requests necessary permissions before the service attempts to start.
@@ -89,6 +88,8 @@ void onStart(ServiceInstance service) async {
   connectionStateSubscription; // Listens for BT device disconnection
   StreamSubscription<BluetoothAdapterState>?
   adapterStateSubscription; // Listens for global BT adapter state changes
+
+  String? csvFilePath; // <-- Add this to track the current session's CSV file
 
   // --- Foreground/Background Mode Management for Android ---
   if (service is AndroidServiceInstance) {
@@ -189,6 +190,10 @@ void onStart(ServiceInstance service) async {
       return;
     }
     deviceName = data['deviceName'];
+    csvFilePath = data['csvFilePath']; // <-- Get the path from UI
+
+    // Ensure CSV header for this session's file
+    await _ensureCsvHeader(csvFilePath);
 
     // Prevent starting logging if it's already active.
     if (logTimer?.isActive ?? false) {
@@ -365,6 +370,7 @@ void onStart(ServiceInstance service) async {
             service,
             connectedDevice!,
             targetCharacteristic!,
+            csvFilePath, // Pass the session's CSV file path
           );
         } else {
           // If for some reason device or characteristic becomes null, stop logging.
@@ -402,6 +408,7 @@ Future<void> _collectAndLogData(
   ServiceInstance service,
   BluetoothDevice device,
   BluetoothCharacteristic characteristic,
+  String? csvFilePath,
 ) async {
   debugPrint('Background service: _collectAndLogData called.');
   final now = DateTime.now();
@@ -502,7 +509,7 @@ Future<void> _collectAndLogData(
     lat?.toString() ?? 'N/A',
     lon?.toString() ?? 'N/A',
     accuracy?.toStringAsFixed(2) ?? 'N/A',
-  ]);
+  ], csvFilePath);
   debugPrint('Background service: Data appended to CSV.');
 
   // --- Send data to UI ---
@@ -510,7 +517,7 @@ Future<void> _collectAndLogData(
   service.invoke('updateUI', {
     // Provide a more concise status message for the UI, indicating if BT/GPS had errors.
     'status':
-        'Logging: BT: ${btDataStr.contains("Error") ? "Error" : "OK"}, GPS: ${locationDataStr.contains("Error") ? "Error" : "OK"}',
+        'BLT: ${btDataStr.contains("Error") ? "Error" : "OK"}, GPS: ${locationDataStr.contains("Error") ? "Error" : "OK"}',
     'btData': btDataStr,
     'locationData': locationDataStr,
   });
@@ -521,12 +528,9 @@ Future<void> _collectAndLogData(
 
 /// Ensures that the CSV file exists and contains the header row.
 /// If the file doesn't exist or is empty, it writes the header.
-Future<void> _ensureCsvHeader() async {
-  if (csvPath == null) {
-    return; // Ensure csvPath is initialized before proceeding
-  }
-  final file = File(csvPath ?? "default.csv");
-  // Check if file exists AND if its content is not just whitespace.
+Future<void> _ensureCsvHeader(String? csvFilePath) async {
+  if (csvFilePath == null) return;
+  final file = File(csvFilePath);
   if (!await file.exists() || (await file.readAsString()).trim().isEmpty) {
     final header = [
       'Timestamp',
@@ -545,24 +549,17 @@ Future<void> _ensureCsvHeader() async {
 }
 
 /// Appends a new row of data to the CSV log file.
-Future<void> _appendToCsv(List<dynamic> row) async {
-  if (csvPath == null) {
-    return; // Ensure csvPath is initialized before proceeding
-  }
-  final file = File(csvPath ?? "default.csv");
+Future<void> _appendToCsv(List<dynamic> row, String? csvFilePath) async {
+  if (csvFilePath == null) return;
+  final file = File(csvFilePath);
   final csvString = const ListToCsvConverter().convert([row]);
-  await file.writeAsString(
-    '$csvString\n',
-    mode: FileMode.append,
-  ); // Append mode adds to the end of the file
+  await file.writeAsString('$csvString\n', mode: FileMode.append);
 }
 
 // --- Main Application Entry Point ---
 void main() async {
   WidgetsFlutterBinding.ensureInitialized(); // Ensure Flutter widgets are initialized
   debugPrint('Main: WidgetsFlutterBinding initialized.');
-
-  csvPath = await Utils.csvFilePath;
 
   await initializeService(); // Initialize the background service configuration
   debugPrint('Main: Background service initialized.');
@@ -571,10 +568,7 @@ void main() async {
   FlutterBluePlus.setLogLevel(LogLevel.verbose);
   debugPrint('Main: FlutterBluePlus log level set to verbose.');
 
-  await _ensureCsvHeader(); // Ensure the CSV header is present before app starts
-  debugPrint('Main: CSV header check complete.');
-
-  runApp(const MyApp()); // Run the main Flutter application
+  runApp(const MyApp());
   debugPrint('Main: MyApp started.');
 }
 
@@ -585,15 +579,12 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Bluetooth & GPS Logger',
+      title: 'VéloClimat',
       theme: ThemeData(
         primarySwatch: Colors.blue,
-        visualDensity: VisualDensity
-            .adaptivePlatformDensity, // Adjusts density based on platform
+        visualDensity: VisualDensity.adaptivePlatformDensity,
       ),
-      home: BluetoothConnectorPage(
-        csvFilePath: csvPath,
-      ), // The main page of the application
+      home: const BluetoothConnectorPage(), // No csvFilePath needed here
     );
   }
 }

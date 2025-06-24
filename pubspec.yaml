@@ -45,6 +45,7 @@ dependencies:
   flutter_background_service_android: ^6.3.0 # Specifically for Android features
   flutter_local_notifications: ^19.2.1
   permission_handler: ^12.0.0 # For handling permissions like notifications
+  archive: ^4.0.7
 
 dev_dependencies:
   flutter_test:
