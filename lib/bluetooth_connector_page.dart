@@ -25,11 +25,11 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
   bool disableDeleteButton = false;
 
   // UI state variables to display real-time logging information
-  String _connectionStatus = 'Service Stopped';
-  String _characteristicData = 'No data';
-  String _locationData = 'No location data';
+  String _connectionStatus = 'Service arrêté';
+  String _characteristicData = 'Aucune donnée';
+  String _locationData = 'Aucune donnée GPS';
   List<String> _csvLines = [
-    'No log data yet.',
+    'Aucune donnée',
   ]; // Stores the latest CSV lines for display
   bool _isServiceRunning = false; // Tracks if the background service is active
   BluetoothAdapterState _bluetoothAdapterState =
@@ -39,6 +39,7 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
   StreamSubscription<BluetoothAdapterState>? _adapterStateSubscription;
 
   String? _currentCsvFilePath; // Track the current session's CSV file path
+  bool _isConnecting = false; // <-- Ajouté
 
   @override
   void initState() {
@@ -61,7 +62,10 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
       });
       // If Bluetooth is off and the service is running, stop the logging gracefully.
       if (state != BluetoothAdapterState.on && _isServiceRunning) {
-        Utils.showSnackBar('Bluetooth is off. Stopping logging.', context);
+        Utils.showSnackBar(
+          'Le Bluetooth est désactivé. Arrêt de journalisation.',
+          context,
+        );
         _stopLogging(); // Automatically stop if Bluetooth turns off
       }
     });
@@ -74,9 +78,9 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
     setState(() {
       _isServiceRunning = isRunning;
       _connectionStatus = isRunning
-          ? 'Service is running...'
-          : 'Service Stopped';
-      disableDeleteButton = isRunning ? true : false;
+          ? 'Service en exécution...'
+          : 'Service arrêté';
+      disableDeleteButton = isRunning || _isConnecting ? true : false;
     });
     debugPrint(
       'UI: Background service status: $_connectionStatus (isRunning: $_isServiceRunning)',
@@ -92,11 +96,6 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
         debugPrint(
           'UI: updateUI received, but widget not mounted or data is null.',
         );
-        return; // Ensure widget is still mounted and data is not null
-      }
-      // Only update if service is not already stopped
-      if (!_isServiceRunning) {
-        debugPrint('UI: updateUI ignored because service is stopped.');
         return;
       }
       debugPrint('UI: Received updateUI: $data');
@@ -104,24 +103,37 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
         _connectionStatus = data['status'] ?? _connectionStatus;
         _characteristicData = data['btData'] ?? _characteristicData;
         _locationData = data['locationData'] ?? _locationData;
-        _isServiceRunning = true; // Only set to true if not stopped
-        disableDeleteButton = true;
+        // <-- Ajout : met à jour _isConnecting selon isScanning
+        if (data.containsKey('isScanning')) {
+          _isConnecting = data['isScanning'] == true;
+        }
+        // Only set _isServiceRunning to true if status is not "Service arrêté"
+        _isServiceRunning = data['status'] == 'Service arrêté'
+            ? false
+            : _isServiceRunning;
+        disableDeleteButton = data['status'] == 'Service arrêté' ? false : true;
       });
-      _readLatestCsvLines(); // Periodically update the displayed CSV lines
+      // Affiche le toast si demandé
+      if (data['showToast'] != null &&
+          data['showToast'].toString().isNotEmpty) {
+        Utils.showSnackBar(data['showToast'].toString(), context);
+      }
+      _readLatestCsvLines();
     });
 
     FlutterBackgroundService().on('stopService').listen((event) {
       if (!mounted) {
         debugPrint('UI: stopService received, but widget not mounted.');
-        return; // Ensure widget is still mounted
+        return;
       }
       debugPrint('UI: Received stopService command.');
       setState(() {
-        _isServiceRunning = false; // Service has stopped
+        _isServiceRunning = false;
         _connectionStatus = 'Service Stopped';
-        _characteristicData = 'Aucune donnée'; // Clear displayed data
+        _characteristicData = 'Aucune donnée';
         _locationData = 'Aucune donnée GPS';
         disableDeleteButton = false;
+        _isConnecting = false; // Toujours désactiver le loader à l'arrêt
       });
     });
   }
@@ -139,6 +151,9 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
   /// This includes requesting permissions, checking Bluetooth state, and starting the background service.
   Future<void> _startLogging() async {
     debugPrint('UI: Start Logging button pressed.');
+    setState(() {
+      _isConnecting = true; // <-- Ajouté
+    });
     await Utils.requestPermissions();
     debugPrint('UI: Permissions re-checked.');
 
@@ -247,21 +262,13 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
     // Start the background service and send the 'startLogging' command.
     try {
       debugPrint('UI: Starting background service...');
-      await service
-          .startService(); // Actually starts the Dart background isolate
-      // --- ADDED DELAY HERE ---
-      await Future.delayed(
-        const Duration(milliseconds: 1000),
-      ); // Give service time to initialize fully
-      debugPrint('UI: Brief delay after service.startService().');
-
-      service.invoke(
-        'setAsForeground',
-      ); // Request to keep the service in foreground mode
+      await service.startService();
+      await Future.delayed(const Duration(milliseconds: 1000));
+      service.invoke('setAsForeground');
       service.invoke('startLogging', {
         'deviceName': deviceName,
-        'csvFilePath': csvFilePath, // Pass the new path!
-      }); // Send command with device name
+        'csvFilePath': csvFilePath,
+      });
       debugPrint(
         'UI: Background service started and startLogging command sent.',
       );
@@ -270,16 +277,17 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
         _isServiceRunning = true;
         _connectionStatus = 'Starting Service...';
         disableDeleteButton = true;
+        _isConnecting = false; // <-- Ajouté
       });
       Utils.showSnackBar('Logging started.', context);
     } catch (e) {
-      // Handle potential errors during service startup (e.g., permissions not granted)
       Utils.showSnackBar('Failed to start service: ${e.toString()}', context);
       debugPrint('UI: Failed to start service: $e');
       setState(() {
         _isServiceRunning = false;
         _connectionStatus = 'Service Start Failed';
         disableDeleteButton = false;
+        _isConnecting = false; // <-- Ajouté
       });
     }
   }
@@ -292,6 +300,7 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
       _isServiceRunning = false;
       _connectionStatus = 'Stopped';
       disableDeleteButton = false;
+      _isConnecting = false; // <-- Ajouté
     });
 
     Utils.showSnackBar('Logging stopped.', context);
@@ -442,12 +451,24 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
 
             // Start/Stop Logging Button
             ElevatedButton.icon(
-              onPressed: _isServiceRunning
-                  ? _stopLogging
-                  : _startLogging, // Toggle based on service status
-              icon: Icon(_isServiceRunning ? Icons.stop : Icons.play_arrow),
+              onPressed: _isConnecting
+                  ? null
+                  : (_isServiceRunning ? _stopLogging : _startLogging),
+
+              icon: _isConnecting
+                  ? SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 2.5,
+                      ),
+                    )
+                  : Icon(_isServiceRunning ? Icons.stop : Icons.play_arrow),
               label: Text(
-                _isServiceRunning ? 'Arrêter' : 'Démarrer',
+                _isConnecting
+                    ? 'Recherche du capteur...'
+                    : (_isServiceRunning ? 'Arrêter' : 'Démarrer'),
                 style: const TextStyle(fontSize: 18),
               ),
               style: ElevatedButton.styleFrom(

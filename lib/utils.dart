@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:share_plus/share_plus.dart';
 
 class Utils {
   static String? csvPath;
@@ -150,7 +149,7 @@ class Utils {
       }
 
       final zipData = ZipEncoder().encode(archive);
-      await zipFile.writeAsBytes(zipData!);
+      await zipFile.writeAsBytes(zipData);
       return zipFile;
     }
   }

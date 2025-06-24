@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:sensor_logging/utils.dart';
 
 class DeleteFilesButton extends StatelessWidget {
@@ -140,6 +141,20 @@ class DeleteFilesButton extends StatelessWidget {
             context,
           );
         }
+      }
+
+      Directory? directory;
+      if (Platform.isAndroid) {
+        directory = await getExternalStorageDirectory();
+      } else {
+        directory = await getApplicationDocumentsDirectory();
+      }
+      if (directory == null) {
+        throw Exception("Could not get application directory for CSV storage.");
+      }
+
+      if (File('${directory.path}/sensor_data.zip').existsSync()) {
+        await File('${directory.path}/sensor_data.zip').delete();
       }
       Utils.showSnackBar('Données supprimées', context);
     }
