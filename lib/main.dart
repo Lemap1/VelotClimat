@@ -19,7 +19,7 @@ import 'package:sensor_logging/utils.dart';
 // These are example UUIDs for a generic Environmental Sensing Service and a custom characteristic.
 final Guid SERVICE_UUID = Guid("181A");
 final Guid CHARACTERISTIC_UUID = Guid("FF01");
-String? csvPath = null;
+String? csvPath;
 
 /// Initializes the background service. This sets up the Android and iOS configurations.
 /// It also requests necessary permissions before the service attempts to start.
@@ -522,8 +522,9 @@ Future<void> _collectAndLogData(
 /// Ensures that the CSV file exists and contains the header row.
 /// If the file doesn't exist or is empty, it writes the header.
 Future<void> _ensureCsvHeader() async {
-  if (csvPath == null)
+  if (csvPath == null) {
     return; // Ensure csvPath is initialized before proceeding
+  }
   final file = File(csvPath ?? "default.csv");
   // Check if file exists AND if its content is not just whitespace.
   if (!await file.exists() || (await file.readAsString()).trim().isEmpty) {
@@ -545,8 +546,9 @@ Future<void> _ensureCsvHeader() async {
 
 /// Appends a new row of data to the CSV log file.
 Future<void> _appendToCsv(List<dynamic> row) async {
-  if (csvPath == null)
+  if (csvPath == null) {
     return; // Ensure csvPath is initialized before proceeding
+  }
   final file = File(csvPath ?? "default.csv");
   final csvString = const ListToCsvConverter().convert([row]);
   await file.writeAsString(

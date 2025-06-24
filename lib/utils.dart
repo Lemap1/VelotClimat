@@ -5,7 +5,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 class Utils {
-  static String? csvPath = null;
+  static String? csvPath;
 
   /// Requests essential permissions for the app: Notifications (for Android 13+),
   /// Bluetooth (for Android 12+), Location (Always/WhileInUse), and Storage.

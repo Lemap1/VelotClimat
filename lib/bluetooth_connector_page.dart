@@ -579,7 +579,7 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
                       child: SingleChildScrollView(
                         scrollDirection: Axis.vertical,
                         child: DataTable(
-                          headingRowColor: MaterialStateProperty.all(
+                          headingRowColor: WidgetStateProperty.all(
                             Colors.blue.shade50,
                           ),
                           columns: const [

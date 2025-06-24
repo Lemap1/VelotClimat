@@ -16,4 +16,4 @@ build_android:
     paths:
       - build/app/outputs/flutter-apk/app-release.apk # Path to the generated APK
   rules:
-    - if: '$CI_COMMIT_BRANCH == "master"' # Run this job only on the 'main' branch
+    - if: '$CI_COMMIT_BRANCH == "main"' # Run this job only on the 'main' branch
