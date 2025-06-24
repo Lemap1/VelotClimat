@@ -1,0 +1,36 @@
+name: Build Android APK
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    name: Build APK
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/cirruslabs/flutter:3.32.4
+    env:
+      ANDROID_SDK_ROOT: /opt/android-sdk-linux
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v3
+
+      - name: Flutter doctor
+        run: flutter doctor
+
+      - name: Clean project
+        run: flutter clean
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Build APK
+        run: flutter build apk --release
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release.apk
+          path: build/app/outputs/flutter-apk/app-release.apk
