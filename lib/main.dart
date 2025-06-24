@@ -113,6 +113,7 @@ void onStart(ServiceInstance service) async {
     // Clean up all resources to prevent leaks and ensure a graceful shutdown.
     logTimer
         ?.cancel(); // Stop the periodic logging timer - Removed 'await' as cancel() returns void
+    logTimer = null; // Clear the timer reference
     await connectionStateSubscription
         ?.cancel(); // Cancel device connection state listener
     await adapterStateSubscription
@@ -363,7 +364,9 @@ void onStart(ServiceInstance service) async {
       // --- Start Periodic Data Collection & Logging ---
       // This timer will trigger the data collection function at a fixed interval.
       debugPrint('Background service: Starting periodic log timer.');
-      logTimer = Timer.periodic(const Duration(seconds: 1), (timer) async {
+      logTimer = Timer.periodic(const Duration(milliseconds: 5000), (
+        timer,
+      ) async {
         if (connectedDevice != null && targetCharacteristic != null) {
           // Only proceed if device and characteristic are still valid.
           await _collectAndLogData(
@@ -386,7 +389,7 @@ void onStart(ServiceInstance service) async {
       });
 
       service.invoke('updateUI', {
-        'status': 'Connected & Logging every second.',
+        'status': 'Connected & Logging every 500ms.',
       });
       debugPrint('Background service: Logging successfully initiated.');
     } catch (e) {

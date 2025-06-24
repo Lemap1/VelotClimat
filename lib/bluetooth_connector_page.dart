@@ -22,6 +22,7 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
   final TextEditingController _deviceNameController = TextEditingController(
     text: "",
   );
+  bool disableDeleteButton = false;
 
   // UI state variables to display real-time logging information
   String _connectionStatus = 'Service Stopped';
@@ -75,6 +76,7 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
       _connectionStatus = isRunning
           ? 'Service is running...'
           : 'Service Stopped';
+      disableDeleteButton = isRunning ? true : false;
     });
     debugPrint(
       'UI: Background service status: $_connectionStatus (isRunning: $_isServiceRunning)',
@@ -103,6 +105,7 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
         _characteristicData = data['btData'] ?? _characteristicData;
         _locationData = data['locationData'] ?? _locationData;
         _isServiceRunning = true; // Only set to true if not stopped
+        disableDeleteButton = true;
       });
       _readLatestCsvLines(); // Periodically update the displayed CSV lines
     });
@@ -118,6 +121,7 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
         _connectionStatus = 'Service Stopped';
         _characteristicData = 'Aucune donnée'; // Clear displayed data
         _locationData = 'Aucune donnée GPS';
+        disableDeleteButton = false;
       });
     });
   }
@@ -265,6 +269,7 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
       setState(() {
         _isServiceRunning = true;
         _connectionStatus = 'Starting Service...';
+        disableDeleteButton = true;
       });
       Utils.showSnackBar('Logging started.', context);
     } catch (e) {
@@ -274,6 +279,7 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
       setState(() {
         _isServiceRunning = false;
         _connectionStatus = 'Service Start Failed';
+        disableDeleteButton = false;
       });
     }
   }
@@ -285,6 +291,7 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
     setState(() {
       _isServiceRunning = false;
       _connectionStatus = 'Stopped';
+      disableDeleteButton = false;
     });
 
     Utils.showSnackBar('Logging stopped.', context);
@@ -463,7 +470,7 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                DeleteFilesButton(),
+                DeleteFilesButton(isDisabled: disableDeleteButton),
                 const SizedBox(width: 16),
                 ShareDataButton(),
               ],
