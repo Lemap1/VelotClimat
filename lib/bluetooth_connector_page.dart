@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:sensor_logging/widgets/bluetooth_indicator.dart';
+import 'package:sensor_logging/widgets/bluetooth_scan_popup.dart';
 import 'package:sensor_logging/widgets/connection_button.dart';
 import 'package:sensor_logging/widgets/delete_files_button.dart';
 import 'package:sensor_logging/utils.dart';
@@ -398,28 +399,45 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
         // Use SingleChildScrollView to prevent content overflow on smaller screens
         padding: const EdgeInsets.all(16.0),
         child: Column(
+          mainAxisSize: MainAxisSize.min, // Use min to fit content
           crossAxisAlignment:
               CrossAxisAlignment.stretch, // Stretch children horizontally
           children: [
-            // Bluetooth Device Name Input Field
-            TextField(
-              controller: _deviceNameController,
-
-              decoration: InputDecoration(
-                labelText: 'Nom du capteur Bluetooth',
-                hintText: 'Nom exact du capteur (ex: VC_SENS_X)',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(
-                    8.0,
-                  ), // Rounded corners for input field
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _deviceNameController,
+                    decoration: InputDecoration(
+                      labelText: 'Nom du capteur Bluetooth',
+                      hintText: 'Nom exact du capteur (ex: VC_SENS_X)',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8.0),
+                      ),
+                      prefixIcon: const Icon(Icons.bluetooth),
+                    ),
+                    enabled: !_isServiceRunning,
+                  ),
                 ),
-                prefixIcon: const Icon(
-                  Icons.bluetooth,
-                ), // Bluetooth icon prefix
-              ),
-              enabled:
-                  !_isServiceRunning, // Disable input when service is active
+                const SizedBox(width: 8),
+                BluetoothScanPopup(
+                  isRunning: _isServiceRunning,
+                  onDeviceSelected: (device) {
+                    setState(() {
+                      _deviceNameController.text = device.name.isNotEmpty
+                          ? device.name
+                          : device.id.toString();
+                    });
+
+                    _startLogging();
+                  },
+                ),
+              ],
             ),
+
+            // Bluetooth Device Name Input Field
             const SizedBox(height: 20),
 
             // Bluetooth Status Indicator
