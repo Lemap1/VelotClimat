@@ -430,8 +430,11 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
                           ? device.name
                           : device.id.toString();
                     });
-
-                    _startLogging();
+                    if (_isServiceRunning) {
+                      //if a connection to a sensor is already in progress stop it
+                      _stopLogging();
+                    }
+                    _startLogging(); //start a connection to the selected device.
                   },
                 ),
               ],
