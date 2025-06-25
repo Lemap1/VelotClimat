@@ -5,9 +5,13 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:sensor_logging/widgets/bluetooth_indicator.dart';
+import 'package:sensor_logging/widgets/connection_button.dart';
 import 'package:sensor_logging/widgets/delete_files_button.dart';
 import 'package:sensor_logging/utils.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
+import 'package:sensor_logging/widgets/live_status_card.dart';
+import 'package:sensor_logging/widgets/log_table.dart';
 import 'package:sensor_logging/widgets/share_data_button.dart';
 
 class BluetoothConnectorPage extends StatefulWidget {
@@ -419,73 +423,17 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
             const SizedBox(height: 20),
 
             // Bluetooth Status Indicator
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  _bluetoothAdapterState == BluetoothAdapterState.on
-                      ? Icons
-                            .bluetooth_connected // Icon for Bluetooth ON
-                      : Icons.bluetooth_disabled, // Icon for Bluetooth OFF
-                  color: _bluetoothAdapterState == BluetoothAdapterState.on
-                      ? Colors
-                            .blue
-                            .shade700 // Blue for ON
-                      : Colors.grey.shade600, // Grey for OFF
-                  size: 28,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  'Bluetooth : ${_bluetoothAdapterState.name.toUpperCase()}',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: _bluetoothAdapterState == BluetoothAdapterState.on
-                        ? Colors.blue.shade700
-                        : Colors.grey.shade600,
-                  ),
-                ),
-              ],
-            ),
+            BluetoothIndicator(bluetoothAdapterState: _bluetoothAdapterState),
+
             const SizedBox(height: 20),
 
             // Start/Stop Logging Button
-            ElevatedButton.icon(
-              onPressed: _isConnecting
-                  ? null
-                  : (_isServiceRunning ? _stopLogging : _startLogging),
-
-              icon: _isConnecting
-                  ? SizedBox(
-                      width: 22,
-                      height: 22,
-                      child: CircularProgressIndicator(
-                        color: Colors.white,
-                        strokeWidth: 2.5,
-                      ),
-                    )
-                  : Icon(_isServiceRunning ? Icons.stop : Icons.play_arrow),
-              label: Text(
-                _isConnecting
-                    ? 'Recherche du capteur...'
-                    : (_isServiceRunning ? 'Arrêter' : 'Démarrer'),
-                style: const TextStyle(fontSize: 18),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: _isServiceRunning
-                    ? Colors.red.shade700
-                    : Colors.green.shade700, // Red for stop, Green for start
-                foregroundColor: Colors.white, // White text color
-                padding: const EdgeInsets.symmetric(
-                  vertical: 15,
-                ), // Larger padding for better touch target
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(
-                    10,
-                  ), // Rounded button corners
-                ),
-                elevation: 5, // Add shadow for a raised effect
-              ),
+            ConnectionButton(
+              isConnecting: _isConnecting,
+              isServiceRunning: _isServiceRunning,
+              startLogging: _startLogging,
+              stopLogging: _stopLogging,
+              onServiceStatusChanged: _checkServiceStatus,
             ),
             const SizedBox(height: 15),
             Row(
@@ -500,57 +448,14 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
             const SizedBox(height: 25),
 
             // Live Status Section
-            Card(
-              elevation: 3,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              color: Colors.white,
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildStatusRow(
-                      'État du service :',
-                      _connectionStatus,
-                      icon: Icons.info,
-                      iconColor: Colors.blue.shade700,
-                    ),
-                    const Divider(),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceAround,
-                      children: [
-                        _buildBigData(
-                          icon: Icons.thermostat,
-                          label: 'Temp',
-                          value: temperature ?? '--',
-                          color: Colors.orange.shade700,
-                        ),
-                        _buildBigData(
-                          icon: Icons.water_drop,
-                          label: 'Hum',
-                          value: humidity ?? '--',
-                          color: Colors.blue.shade700,
-                        ),
-                        _buildBigData(
-                          icon: Icons.north, // Different icon for latitude
-                          label: 'Lat',
-                          value: latitude ?? '--',
-                          color: Colors.green.shade700,
-                        ),
-                        _buildBigData(
-                          icon: Icons.east, // Different icon for longitude
-                          label: 'Long',
-                          value: longitude ?? '--',
-                          color: Colors.green.shade700,
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
+            LiveStatusCard(
+              connectionStatus: _connectionStatus,
+              temperature: temperature,
+              humidity: humidity,
+              latitude: latitude,
+              longitude: longitude,
             ),
+
             const SizedBox(height: 25),
 
             // Latest Log Entries Section
@@ -583,147 +488,12 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
                         ),
                       ),
                     )
-                  : SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: SingleChildScrollView(
-                        scrollDirection: Axis.vertical,
-                        child: DataTable(
-                          headingRowColor: WidgetStateProperty.all(
-                            Colors.blue.shade50,
-                          ),
-                          columns: const [
-                            DataColumn(label: Text('Date')),
-                            DataColumn(label: Text('Temp')),
-                            DataColumn(label: Text('Hum')),
-                            DataColumn(label: Text('Lat')),
-                            DataColumn(label: Text('Long')),
-                            DataColumn(label: Text('Acc')),
-                          ],
-                          rows: _csvLines
-                              .skip(1) // skip header
-                              .where((line) => line.trim().isNotEmpty)
-                              .toList()
-                              .reversed // latest first
-                              .map((line) {
-                                final cells = line.split(',');
-                                while (cells.length < 6) {
-                                  cells.add('--');
-                                }
-                                return DataRow(
-                                  cells: [
-                                    DataCell(Text(cells[0])),
-                                    DataCell(
-                                      Text(
-                                        cells[1],
-                                        style: TextStyle(
-                                          color: Colors.orange.shade700,
-                                        ),
-                                      ),
-                                    ),
-                                    DataCell(
-                                      Text(
-                                        cells[2],
-                                        style: TextStyle(
-                                          color: Colors.blue.shade700,
-                                        ),
-                                      ),
-                                    ),
-                                    DataCell(
-                                      Text(
-                                        cells[3],
-                                        style: TextStyle(
-                                          color: Colors.green.shade700,
-                                        ),
-                                      ),
-                                    ),
-                                    DataCell(
-                                      Text(
-                                        cells[4],
-                                        style: TextStyle(
-                                          color: Colors.green.shade700,
-                                        ),
-                                      ),
-                                    ),
-                                    DataCell(
-                                      Text(
-                                        cells[5],
-                                        style: TextStyle(
-                                          color: Colors.grey.shade700,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                );
-                              })
-                              .toList(),
-                        ),
-                      ),
-                    ),
+                  : LogTable(csvLines: _csvLines),
             ),
             const SizedBox(height: 50), // Add some spacing at the bottom
           ],
         ),
       ),
-    );
-  }
-
-  /// Helper widget to build a consistent status row (Label: Value).
-  Widget _buildStatusRow(
-    String label,
-    String value, {
-    IconData? icon,
-    Color? iconColor,
-  }) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (icon != null)
-          Padding(
-            padding: const EdgeInsets.only(right: 8.0, top: 2.0),
-            child: Icon(icon, size: 22),
-          ),
-        SizedBox(
-          width: 120,
-          child: Text(
-            label,
-            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-          ),
-        ),
-        Expanded(child: Text(value, style: const TextStyle(fontSize: 15))),
-      ],
-    );
-  }
-
-  /// Helper widget to display a large data value with an icon.
-  Widget _buildBigData({
-    required IconData icon,
-    required String label,
-    required String value,
-    required Color color,
-  }) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, color: color, size: 28),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-            color: color,
-          ),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            color: color,
-          ),
-        ),
-      ],
     );
   }
 }

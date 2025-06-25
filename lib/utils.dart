@@ -134,11 +134,13 @@ class Utils {
 
   static Future<File?> zipAllCsv() async {
     List<File> allCsvFiles = await getAllCsvFiles();
-    //use archive plugin to zip all csv files
     if (allCsvFiles.isEmpty) {
       return null;
     } else {
-      final zipFile = File('${allCsvFiles.first.parent.path}/sensor_logs.zip');
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final zipFile = File(
+        '${allCsvFiles.first.parent.path}/sensor_logs_$timestamp.zip',
+      );
       final archive = Archive();
 
       for (var file in allCsvFiles) {
@@ -149,7 +151,15 @@ class Utils {
       }
 
       final zipData = ZipEncoder().encode(archive);
-      await zipFile.writeAsBytes(zipData);
+      await zipFile.writeAsBytes(zipData, flush: true);
+
+      // Wait for the file to actually exist (should be instant, but just in case)
+      int tries = 0;
+      while (!await zipFile.exists() && tries < 10) {
+        await Future.delayed(const Duration(milliseconds: 50));
+        tries++;
+      }
+
       return zipFile;
     }
   }

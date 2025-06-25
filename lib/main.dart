@@ -90,6 +90,7 @@ void onStart(ServiceInstance service) async {
   String? csvFilePath; // Track the current session's CSV file
 
   bool isReconnecting = false;
+  int reconnectionAttempts = 0; // <-- Add this at the top of onStart
 
   // --- Foreground/Background Mode Management for Android ---
   if (service is AndroidServiceInstance) {
@@ -266,6 +267,9 @@ void onStart(ServiceInstance service) async {
         });
 
         final start = DateTime.now();
+        connectedDevice = foundResult?.device;
+
+        // --- Connect to the discov
         while (foundResult == null &&
             DateTime.now().difference(start) < const Duration(seconds: 15)) {
           await Future.delayed(const Duration(milliseconds: 200));
@@ -310,17 +314,19 @@ void onStart(ServiceInstance service) async {
         );
         if (state == BluetoothConnectionState.disconnected) {
           isReconnecting = true;
+          reconnectionAttempts++; // <-- Increment on each attempt
+
           service.invoke('updateUI', {
             'status': 'Connexion perdue',
             'btData': 'Déconnecté',
             'locationData': 'Aucune donnée GPS',
             'showToast':
                 'Erreur : $deviceName déconnecté. Tentative de reconnexion...',
-            'isScanning': true, // <-- Scanning during reconnection
+            'isScanning': true,
           });
 
           debugPrint(
-            'Background service: Device disconnected. Trying to reconnect...',
+            'Background service: Device disconnected. Trying to reconnect... (attempt $reconnectionAttempts)',
           );
 
           bool reconnected = false;
@@ -346,11 +352,12 @@ void onStart(ServiceInstance service) async {
             if (targetCharacteristic != null) {
               reconnected = true;
               reconnectMsg = 'Reconnexion réussie à $deviceName.';
+              reconnectionAttempts = 0; // <-- Reset on success
               service.invoke('updateUI', {
                 'status': 'Reconnexion réussie à $deviceName.',
                 'btData': 'Reconnecté',
                 'showToast': reconnectMsg,
-                'isScanning': false, // <-- Reconnection finished
+                'isScanning': false,
               });
             } else {
               reconnectMsg =
@@ -358,8 +365,7 @@ void onStart(ServiceInstance service) async {
               service.invoke('updateUI', {
                 'status': reconnectMsg,
                 'btData': 'Déconnecté',
-                'showToast': reconnectMsg,
-                'isScanning': false, // <-- Reconnection finished
+                'isScanning': false,
               });
             }
           } catch (e) {
@@ -367,14 +373,27 @@ void onStart(ServiceInstance service) async {
             service.invoke('updateUI', {
               'status': reconnectMsg,
               'btData': 'Déconnecté',
-              'showToast': reconnectMsg,
-              'isScanning': false, // <-- Reconnection finished
+              'isScanning': false,
             });
           }
           isReconnecting = false;
           debugPrint('Background service: $reconnectMsg');
+
           if (!reconnected) {
-            service.invoke('stopService');
+            if (reconnectionAttempts >= 3) {
+              service.invoke('updateUI', {
+                'status': 'Échec de reconnexion après 3 tentatives.',
+                'btData': 'Déconnecté',
+                'locationData': 'Aucune donnée GPS',
+                'showToast': 'Impossible de se reconnecter après 3 essais.',
+                'isScanning': false,
+              });
+              await connectionStateSubscription
+                  ?.cancel(); // <-- Cancel the subscription
+              connectedDevice = null; // <-- Prevent further attempts
+              service.invoke('stopService');
+              return; // <-- Exit the listener
+            }
           }
         }
       });
@@ -653,10 +672,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'VéloClimat',
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-        visualDensity: VisualDensity.adaptivePlatformDensity,
-      ),
+      theme: ThemeData(visualDensity: VisualDensity.adaptivePlatformDensity),
       home: const BluetoothConnectorPage(), // No csvFilePath needed here
     );
   }
