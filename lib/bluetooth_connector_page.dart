@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:sensor_logging/widgets/bluetooth_indicator.dart';
 import 'package:sensor_logging/widgets/bluetooth_scan_popup.dart';
@@ -155,10 +156,19 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
   /// Initiates the logging process.
   /// This includes requesting permissions, checking Bluetooth state, and starting the background service.
   Future<void> _startLogging() async {
+    if (_deviceNameController.text.isEmpty) {
+      Utils.showSnackBar(
+        'Veuillez entrer le nom du capteur Bluetooth.',
+        context,
+      );
+      debugPrint('UI: Device name is empty.');
+      return;
+    }
     debugPrint('UI: Start Logging button pressed.');
     setState(() {
       _isConnecting = true; // <-- Ajouté
     });
+
     await Utils.requestPermissions();
     debugPrint('UI: Permissions re-checked.');
 
@@ -230,6 +240,35 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
         );
         return;
       }
+    }
+    if (!await Geolocator.isLocationServiceEnabled()) {
+      setState(() {
+        _isConnecting = false;
+      });
+      // Affiche une boîte de dialogue pour demander d'activer le GPS
+      await showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('GPS désactivé'),
+          content: const Text(
+            'Le GPS est désactivé. Veuillez l\'activer dans les paramètres pour continuer.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                await Geolocator.openLocationSettings();
+                Navigator.of(context).pop();
+              },
+              child: const Text('Ouvrir les paramètres'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Annuler'),
+            ),
+          ],
+        ),
+      );
+      return;
     }
 
     final String deviceName = _deviceNameController.text.trim();
@@ -376,9 +415,7 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
   }
 
   String? get longitude {
-    final match = RegExp(
-      r'(Long|Lon)[:=]?\s*([-\d.]+)',
-    ).firstMatch(_locationData);
+    final match = RegExp(r'(Lon)[:=]?\s*([-\d.]+)').firstMatch(_locationData);
     if (match != null) {
       final value = double.tryParse(match.group(2)!);
       if (value != null) {

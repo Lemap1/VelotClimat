@@ -12,13 +12,41 @@ class LogTable extends StatelessWidget {
         scrollDirection: Axis.vertical,
         child: DataTable(
           headingRowColor: WidgetStateProperty.all(Colors.blue.shade50),
-          columns: const [
-            DataColumn(label: Text('Date')),
-            DataColumn(label: Text('Temp')),
-            DataColumn(label: Text('Hum')),
-            DataColumn(label: Text('Lat')),
-            DataColumn(label: Text('Long')),
-            DataColumn(label: Text('Acc')),
+          columns: [
+            DataColumn(
+              label: ClipRRect(
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(12),
+                ),
+                child: Container(
+                  color: Colors.blue.shade50,
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 8,
+                    horizontal: 4,
+                  ),
+                  child: const Text('Date'),
+                ),
+              ),
+            ),
+            const DataColumn(label: Text('Temp')),
+            const DataColumn(label: Text('Hum')),
+            const DataColumn(label: Text('Lat')),
+            const DataColumn(label: Text('Lon')),
+            DataColumn(
+              label: ClipRRect(
+                borderRadius: const BorderRadius.only(
+                  topRight: Radius.circular(12),
+                ),
+                child: Container(
+                  color: Colors.blue.shade50,
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 8,
+                    horizontal: 4,
+                  ),
+                  child: const Text('Acc'),
+                ),
+              ),
+            ),
           ],
           rows: csvLines
               .skip(1) // skip header
