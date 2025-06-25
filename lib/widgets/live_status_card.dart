@@ -6,7 +6,7 @@ class LiveStatusCard extends StatelessWidget {
   final String? humidity; // Example humidity data
   final String? latitude; // Example latitude data
   final String? longitude; // Example longitude data
-  
+
   const LiveStatusCard({
     super.key,
     required this.connectionStatus,
@@ -57,7 +57,7 @@ class LiveStatusCard extends StatelessWidget {
                 ),
                 _buildBigData(
                   icon: Icons.east, // Different icon for longitude
-                  label: 'Long',
+                  label: 'Lon',
                   value: longitude ?? '--',
                   color: Colors.green.shade700,
                 ),

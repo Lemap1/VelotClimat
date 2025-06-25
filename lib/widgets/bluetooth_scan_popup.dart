@@ -187,12 +187,12 @@ class _BluetoothScanDialogState extends State<_BluetoothScanDialog> {
       ),
       actions: [
         TextButton(
-          child: const Text('Rafraîchir'),
           onPressed: _isScanning
               ? null
               : () {
                   _startScan();
                 },
+          child: const Text('Rafraîchir'),
         ),
         TextButton(
           child: const Text('Terminé'),
