@@ -96,10 +96,15 @@ class _BluetoothScanDialogState extends State<_BluetoothScanDialog> {
     _scanSubscription?.cancel();
     _scanSubscription = FlutterBluePlus.scanResults.listen((results) {
       setState(() {
-        _devices = results.map((r) => r.device).toSet().toList();
+        _devices = results
+            .map((r) => r.device)
+            .where((d) => d.name.startsWith('VC_SENS'))
+            .toSet()
+            .toList();
         if (widget.connectedDevice != null &&
             !_devices.contains(widget.connectedDevice) &&
-            widget.isRunning) {
+            widget.isRunning &&
+            widget.connectedDevice!.name.startsWith('VC_SENS')) {
           _devices.add(widget.connectedDevice!);
         }
       });

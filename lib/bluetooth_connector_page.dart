@@ -156,10 +156,19 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
   /// Initiates the logging process.
   /// This includes requesting permissions, checking Bluetooth state, and starting the background service.
   Future<void> _startLogging() async {
+    if (_deviceNameController.text.isEmpty) {
+      Utils.showSnackBar(
+        'Veuillez entrer le nom du capteur Bluetooth.',
+        context,
+      );
+      debugPrint('UI: Device name is empty.');
+      return;
+    }
     debugPrint('UI: Start Logging button pressed.');
     setState(() {
       _isConnecting = true; // <-- Ajouté
     });
+
     await Utils.requestPermissions();
     debugPrint('UI: Permissions re-checked.');
 
