@@ -5,9 +5,14 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:sensor_logging/widgets/bluetooth_indicator.dart';
+import 'package:sensor_logging/widgets/bluetooth_scan_popup.dart';
+import 'package:sensor_logging/widgets/connection_button.dart';
 import 'package:sensor_logging/widgets/delete_files_button.dart';
 import 'package:sensor_logging/utils.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
+import 'package:sensor_logging/widgets/live_status_card.dart';
+import 'package:sensor_logging/widgets/log_table.dart';
 import 'package:sensor_logging/widgets/share_data_button.dart';
 
 class BluetoothConnectorPage extends StatefulWidget {
@@ -22,13 +27,14 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
   final TextEditingController _deviceNameController = TextEditingController(
     text: "",
   );
+  bool disableDeleteButton = false;
 
   // UI state variables to display real-time logging information
-  String _connectionStatus = 'Service Stopped';
-  String _characteristicData = 'No data';
-  String _locationData = 'No location data';
+  String _connectionStatus = 'Service arrêté';
+  String _characteristicData = 'Aucune donnée';
+  String _locationData = 'Aucune donnée GPS';
   List<String> _csvLines = [
-    'No log data yet.',
+    'Aucune donnée',
   ]; // Stores the latest CSV lines for display
   bool _isServiceRunning = false; // Tracks if the background service is active
   BluetoothAdapterState _bluetoothAdapterState =
@@ -38,6 +44,7 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
   StreamSubscription<BluetoothAdapterState>? _adapterStateSubscription;
 
   String? _currentCsvFilePath; // Track the current session's CSV file path
+  bool _isConnecting = false; // <-- Ajouté
 
   @override
   void initState() {
@@ -60,7 +67,10 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
       });
       // If Bluetooth is off and the service is running, stop the logging gracefully.
       if (state != BluetoothAdapterState.on && _isServiceRunning) {
-        Utils.showSnackBar('Bluetooth is off. Stopping logging.', context);
+        Utils.showSnackBar(
+          'Le Bluetooth est désactivé. Arrêt de journalisation.',
+          context,
+        );
         _stopLogging(); // Automatically stop if Bluetooth turns off
       }
     });
@@ -73,8 +83,9 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
     setState(() {
       _isServiceRunning = isRunning;
       _connectionStatus = isRunning
-          ? 'Service is running...'
-          : 'Service Stopped';
+          ? 'Service en exécution...'
+          : 'Service arrêté';
+      disableDeleteButton = isRunning || _isConnecting ? true : false;
     });
     debugPrint(
       'UI: Background service status: $_connectionStatus (isRunning: $_isServiceRunning)',
@@ -90,11 +101,6 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
         debugPrint(
           'UI: updateUI received, but widget not mounted or data is null.',
         );
-        return; // Ensure widget is still mounted and data is not null
-      }
-      // Only update if service is not already stopped
-      if (!_isServiceRunning) {
-        debugPrint('UI: updateUI ignored because service is stopped.');
         return;
       }
       debugPrint('UI: Received updateUI: $data');
@@ -102,22 +108,37 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
         _connectionStatus = data['status'] ?? _connectionStatus;
         _characteristicData = data['btData'] ?? _characteristicData;
         _locationData = data['locationData'] ?? _locationData;
-        _isServiceRunning = true; // Only set to true if not stopped
+        // <-- Ajout : met à jour _isConnecting selon isScanning
+        if (data.containsKey('isScanning')) {
+          _isConnecting = data['isScanning'] == true;
+        }
+        // Only set _isServiceRunning to true if status is not "Service arrêté"
+        _isServiceRunning = data['status'] == 'Service arrêté'
+            ? false
+            : _isServiceRunning;
+        disableDeleteButton = data['status'] == 'Service arrêté' ? false : true;
       });
-      _readLatestCsvLines(); // Periodically update the displayed CSV lines
+      // Affiche le toast si demandé
+      if (data['showToast'] != null &&
+          data['showToast'].toString().isNotEmpty) {
+        Utils.showSnackBar(data['showToast'].toString(), context);
+      }
+      _readLatestCsvLines();
     });
 
     FlutterBackgroundService().on('stopService').listen((event) {
       if (!mounted) {
         debugPrint('UI: stopService received, but widget not mounted.');
-        return; // Ensure widget is still mounted
+        return;
       }
       debugPrint('UI: Received stopService command.');
       setState(() {
-        _isServiceRunning = false; // Service has stopped
+        _isServiceRunning = false;
         _connectionStatus = 'Service Stopped';
-        _characteristicData = 'Aucune donnée'; // Clear displayed data
+        _characteristicData = 'Aucune donnée';
         _locationData = 'Aucune donnée GPS';
+        disableDeleteButton = false;
+        _isConnecting = false; // Toujours désactiver le loader à l'arrêt
       });
     });
   }
@@ -135,6 +156,9 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
   /// This includes requesting permissions, checking Bluetooth state, and starting the background service.
   Future<void> _startLogging() async {
     debugPrint('UI: Start Logging button pressed.');
+    setState(() {
+      _isConnecting = true; // <-- Ajouté
+    });
     await Utils.requestPermissions();
     debugPrint('UI: Permissions re-checked.');
 
@@ -243,21 +267,13 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
     // Start the background service and send the 'startLogging' command.
     try {
       debugPrint('UI: Starting background service...');
-      await service
-          .startService(); // Actually starts the Dart background isolate
-      // --- ADDED DELAY HERE ---
-      await Future.delayed(
-        const Duration(milliseconds: 1000),
-      ); // Give service time to initialize fully
-      debugPrint('UI: Brief delay after service.startService().');
-
-      service.invoke(
-        'setAsForeground',
-      ); // Request to keep the service in foreground mode
+      await service.startService();
+      await Future.delayed(const Duration(milliseconds: 1000));
+      service.invoke('setAsForeground');
       service.invoke('startLogging', {
         'deviceName': deviceName,
-        'csvFilePath': csvFilePath, // Pass the new path!
-      }); // Send command with device name
+        'csvFilePath': csvFilePath,
+      });
       debugPrint(
         'UI: Background service started and startLogging command sent.',
       );
@@ -265,15 +281,18 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
       setState(() {
         _isServiceRunning = true;
         _connectionStatus = 'Starting Service...';
+        disableDeleteButton = true;
+        _isConnecting = false; // <-- Ajouté
       });
       Utils.showSnackBar('Logging started.', context);
     } catch (e) {
-      // Handle potential errors during service startup (e.g., permissions not granted)
       Utils.showSnackBar('Failed to start service: ${e.toString()}', context);
       debugPrint('UI: Failed to start service: $e');
       setState(() {
         _isServiceRunning = false;
         _connectionStatus = 'Service Start Failed';
+        disableDeleteButton = false;
+        _isConnecting = false; // <-- Ajouté
       });
     }
   }
@@ -285,6 +304,8 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
     setState(() {
       _isServiceRunning = false;
       _connectionStatus = 'Stopped';
+      disableDeleteButton = false;
+      _isConnecting = false; // <-- Ajouté
     });
 
     Utils.showSnackBar('Logging stopped.', context);
@@ -378,92 +399,68 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
         // Use SingleChildScrollView to prevent content overflow on smaller screens
         padding: const EdgeInsets.all(16.0),
         child: Column(
+          mainAxisSize: MainAxisSize.min, // Use min to fit content
           crossAxisAlignment:
               CrossAxisAlignment.stretch, // Stretch children horizontally
           children: [
-            // Bluetooth Device Name Input Field
-            TextField(
-              controller: _deviceNameController,
-
-              decoration: InputDecoration(
-                labelText: 'Nom du capteur Bluetooth',
-                hintText: 'Nom exact du capteur (ex: VC_SENS_X)',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(
-                    8.0,
-                  ), // Rounded corners for input field
-                ),
-                prefixIcon: const Icon(
-                  Icons.bluetooth,
-                ), // Bluetooth icon prefix
-              ),
-              enabled:
-                  !_isServiceRunning, // Disable input when service is active
-            ),
-            const SizedBox(height: 20),
-
-            // Bluetooth Status Indicator
             Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Icon(
-                  _bluetoothAdapterState == BluetoothAdapterState.on
-                      ? Icons
-                            .bluetooth_connected // Icon for Bluetooth ON
-                      : Icons.bluetooth_disabled, // Icon for Bluetooth OFF
-                  color: _bluetoothAdapterState == BluetoothAdapterState.on
-                      ? Colors
-                            .blue
-                            .shade700 // Blue for ON
-                      : Colors.grey.shade600, // Grey for OFF
-                  size: 28,
+                Expanded(
+                  child: TextField(
+                    controller: _deviceNameController,
+                    decoration: InputDecoration(
+                      labelText: 'Nom du capteur Bluetooth',
+                      hintText: 'Nom exact du capteur (ex: VC_SENS_X)',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8.0),
+                      ),
+                      prefixIcon: const Icon(Icons.bluetooth),
+                    ),
+                    enabled: !_isServiceRunning,
+                  ),
                 ),
                 const SizedBox(width: 8),
-                Text(
-                  'Bluetooth : ${_bluetoothAdapterState.name.toUpperCase()}',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: _bluetoothAdapterState == BluetoothAdapterState.on
-                        ? Colors.blue.shade700
-                        : Colors.grey.shade600,
-                  ),
+                BluetoothScanPopup(
+                  isRunning: _isServiceRunning,
+                  onDeviceSelected: (device) {
+                    setState(() {
+                      _deviceNameController.text = device.name.isNotEmpty
+                          ? device.name
+                          : device.id.toString();
+                    });
+                    if (_isServiceRunning) {
+                      //if a connection to a sensor is already in progress stop it
+                      _stopLogging();
+                    }
+                    _startLogging(); //start a connection to the selected device.
+                  },
                 ),
               ],
             ),
+
+            // Bluetooth Device Name Input Field
+            const SizedBox(height: 20),
+
+            // Bluetooth Status Indicator
+            BluetoothIndicator(bluetoothAdapterState: _bluetoothAdapterState),
+
             const SizedBox(height: 20),
 
             // Start/Stop Logging Button
-            ElevatedButton.icon(
-              onPressed: _isServiceRunning
-                  ? _stopLogging
-                  : _startLogging, // Toggle based on service status
-              icon: Icon(_isServiceRunning ? Icons.stop : Icons.play_arrow),
-              label: Text(
-                _isServiceRunning ? 'Arrêter' : 'Démarrer',
-                style: const TextStyle(fontSize: 18),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: _isServiceRunning
-                    ? Colors.red.shade700
-                    : Colors.green.shade700, // Red for stop, Green for start
-                foregroundColor: Colors.white, // White text color
-                padding: const EdgeInsets.symmetric(
-                  vertical: 15,
-                ), // Larger padding for better touch target
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(
-                    10,
-                  ), // Rounded button corners
-                ),
-                elevation: 5, // Add shadow for a raised effect
-              ),
+            ConnectionButton(
+              isConnecting: _isConnecting,
+              isServiceRunning: _isServiceRunning,
+              startLogging: _startLogging,
+              stopLogging: _stopLogging,
+              onServiceStatusChanged: _checkServiceStatus,
             ),
             const SizedBox(height: 15),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                DeleteFilesButton(),
+                DeleteFilesButton(isDisabled: disableDeleteButton),
                 const SizedBox(width: 16),
                 ShareDataButton(),
               ],
@@ -472,57 +469,14 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
             const SizedBox(height: 25),
 
             // Live Status Section
-            Card(
-              elevation: 3,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              color: Colors.white,
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildStatusRow(
-                      'État du service :',
-                      _connectionStatus,
-                      icon: Icons.info,
-                      iconColor: Colors.blue.shade700,
-                    ),
-                    const Divider(),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceAround,
-                      children: [
-                        _buildBigData(
-                          icon: Icons.thermostat,
-                          label: 'Temp',
-                          value: temperature ?? '--',
-                          color: Colors.orange.shade700,
-                        ),
-                        _buildBigData(
-                          icon: Icons.water_drop,
-                          label: 'Hum',
-                          value: humidity ?? '--',
-                          color: Colors.blue.shade700,
-                        ),
-                        _buildBigData(
-                          icon: Icons.north, // Different icon for latitude
-                          label: 'Lat',
-                          value: latitude ?? '--',
-                          color: Colors.green.shade700,
-                        ),
-                        _buildBigData(
-                          icon: Icons.east, // Different icon for longitude
-                          label: 'Long',
-                          value: longitude ?? '--',
-                          color: Colors.green.shade700,
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
+            LiveStatusCard(
+              connectionStatus: _connectionStatus,
+              temperature: temperature,
+              humidity: humidity,
+              latitude: latitude,
+              longitude: longitude,
             ),
+
             const SizedBox(height: 25),
 
             // Latest Log Entries Section
@@ -555,147 +509,12 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
                         ),
                       ),
                     )
-                  : SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: SingleChildScrollView(
-                        scrollDirection: Axis.vertical,
-                        child: DataTable(
-                          headingRowColor: WidgetStateProperty.all(
-                            Colors.blue.shade50,
-                          ),
-                          columns: const [
-                            DataColumn(label: Text('Date')),
-                            DataColumn(label: Text('Temp')),
-                            DataColumn(label: Text('Hum')),
-                            DataColumn(label: Text('Lat')),
-                            DataColumn(label: Text('Long')),
-                            DataColumn(label: Text('Acc')),
-                          ],
-                          rows: _csvLines
-                              .skip(1) // skip header
-                              .where((line) => line.trim().isNotEmpty)
-                              .toList()
-                              .reversed // latest first
-                              .map((line) {
-                                final cells = line.split(',');
-                                while (cells.length < 6) {
-                                  cells.add('--');
-                                }
-                                return DataRow(
-                                  cells: [
-                                    DataCell(Text(cells[0])),
-                                    DataCell(
-                                      Text(
-                                        cells[1],
-                                        style: TextStyle(
-                                          color: Colors.orange.shade700,
-                                        ),
-                                      ),
-                                    ),
-                                    DataCell(
-                                      Text(
-                                        cells[2],
-                                        style: TextStyle(
-                                          color: Colors.blue.shade700,
-                                        ),
-                                      ),
-                                    ),
-                                    DataCell(
-                                      Text(
-                                        cells[3],
-                                        style: TextStyle(
-                                          color: Colors.green.shade700,
-                                        ),
-                                      ),
-                                    ),
-                                    DataCell(
-                                      Text(
-                                        cells[4],
-                                        style: TextStyle(
-                                          color: Colors.green.shade700,
-                                        ),
-                                      ),
-                                    ),
-                                    DataCell(
-                                      Text(
-                                        cells[5],
-                                        style: TextStyle(
-                                          color: Colors.grey.shade700,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                );
-                              })
-                              .toList(),
-                        ),
-                      ),
-                    ),
+                  : LogTable(csvLines: _csvLines),
             ),
             const SizedBox(height: 50), // Add some spacing at the bottom
           ],
         ),
       ),
-    );
-  }
-
-  /// Helper widget to build a consistent status row (Label: Value).
-  Widget _buildStatusRow(
-    String label,
-    String value, {
-    IconData? icon,
-    Color? iconColor,
-  }) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (icon != null)
-          Padding(
-            padding: const EdgeInsets.only(right: 8.0, top: 2.0),
-            child: Icon(icon, size: 22),
-          ),
-        SizedBox(
-          width: 120,
-          child: Text(
-            label,
-            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-          ),
-        ),
-        Expanded(child: Text(value, style: const TextStyle(fontSize: 15))),
-      ],
-    );
-  }
-
-  /// Helper widget to display a large data value with an icon.
-  Widget _buildBigData({
-    required IconData icon,
-    required String label,
-    required String value,
-    required Color color,
-  }) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, color: color, size: 28),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-            color: color,
-          ),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            color: color,
-          ),
-        ),
-      ],
     );
   }
 }

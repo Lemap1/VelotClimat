@@ -3,9 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui'; // Required for DartPluginRegistrant.ensureInitialized()
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
-import 'package:flutter_background_service_android/flutter_background_service_android.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart'; // For Bluetooth operations
 import 'package:geolocator/geolocator.dart'; // For GPS location
 import 'package:csv/csv.dart'; // For CSV file generation
@@ -89,7 +87,10 @@ void onStart(ServiceInstance service) async {
   StreamSubscription<BluetoothAdapterState>?
   adapterStateSubscription; // Listens for global BT adapter state changes
 
-  String? csvFilePath; // <-- Add this to track the current session's CSV file
+  String? csvFilePath; // Track the current session's CSV file
+
+  bool isReconnecting = false;
+  int reconnectionAttempts = 0; // <-- Add this at the top of onStart
 
   // --- Foreground/Background Mode Management for Android ---
   if (service is AndroidServiceInstance) {
@@ -113,6 +114,7 @@ void onStart(ServiceInstance service) async {
     // Clean up all resources to prevent leaks and ensure a graceful shutdown.
     logTimer
         ?.cancel(); // Stop the periodic logging timer - Removed 'await' as cancel() returns void
+    logTimer = null; // Clear the timer reference
     await connectionStateSubscription
         ?.cancel(); // Cancel device connection state listener
     await adapterStateSubscription
@@ -141,6 +143,7 @@ void onStart(ServiceInstance service) async {
       if (await FlutterBluePlus.isScanning.first) {
         debugPrint('Background service: Stopping Bluetooth scan...');
         await FlutterBluePlus.stopScan();
+
         debugPrint('Background service: Bluetooth scan stopped cleanly.');
       }
     } catch (e) {
@@ -151,9 +154,9 @@ void onStart(ServiceInstance service) async {
     debugPrint('Background service: Service stopped itself.');
     // Update UI to reflect that the service has stopped and clear data displays.
     service.invoke('updateUI', {
-      'status': 'Service Stopped',
-      'btData': 'No data',
-      'locationData': 'No location data',
+      'status': 'Service arrêté',
+      'btData': 'Aucune donnée',
+      'locationData': 'Aucune donnée GPS',
     });
   });
 
@@ -166,9 +169,9 @@ void onStart(ServiceInstance service) async {
     if (state != BluetoothAdapterState.on) {
       // If Bluetooth is off or unavailable, notify the UI and stop the logging service.
       service.invoke('updateUI', {
-        'status': 'Bluetooth OFF. Stopping logging.',
-        'btData': 'Bluetooth Off',
-        'locationData': 'No location data',
+        'status': 'Bluetooth désactivé. Journalisation arrêtée.',
+        'btData': 'Bluetooth désactivé',
+        'locationData': 'Aucune donnée GPS',
       });
       debugPrint(
         'Background service: Bluetooth adapter turned off. Stopping service.',
@@ -177,7 +180,9 @@ void onStart(ServiceInstance service) async {
     } else {
       // Bluetooth is ON, update status if logging is active.
       if (logTimer?.isActive ?? false) {
-        service.invoke('updateUI', {'status': 'Bluetooth ON. Logging...'});
+        service.invoke('updateUI', {
+          'status': 'Bluetooth activé. Journalisation en cours...',
+        });
       }
     }
   });
@@ -198,23 +203,25 @@ void onStart(ServiceInstance service) async {
     // Prevent starting logging if it's already active.
     if (logTimer?.isActive ?? false) {
       service.invoke('updateUI', {
-        'status': 'Logging already active for "$deviceName".',
+        'status': 'Journalisation déjà en cours pour "$deviceName".',
       });
       debugPrint('Background service: Logging already active.');
       return;
     }
 
     service.invoke('updateUI', {
-      'status': 'Scanning for "$deviceName"...',
-      'btData': 'No data',
-      'locationData': 'No location data',
+      'status': 'Recherche de "$deviceName"...',
+      'btData': 'Aucune donnée',
+      'locationData': 'Aucune donnée GPS',
+      'isScanning': true, // Indicate that scanning is in progress
     });
     debugPrint('Background service: UI updated to scanning status.');
 
     // Explicitly check if Bluetooth is enabled before starting any scan/connection.
     if (await FlutterBluePlus.adapterState.first != BluetoothAdapterState.on) {
       service.invoke('updateUI', {
-        'status': 'Error: Bluetooth is OFF. Cannot start logging.',
+        'status':
+            'Bluetooth désactivé. Impossible de démarrer la journalisation.',
       });
       service.invoke('stopService'); // Stop service as Bluetooth is required
       debugPrint('Background service: Bluetooth is OFF, stopping service.');
@@ -226,7 +233,8 @@ void onStart(ServiceInstance service) async {
       debugPrint(
         'Background service: Attempting to connect to Bluetooth device.',
       );
-      // Ensure a clean state before attempting a new connection:
+
+      // Clean up previous state
       if (connectedDevice != null &&
           (await connectedDevice!.connectionState.first) ==
               BluetoothConnectionState.connected) {
@@ -235,63 +243,55 @@ void onStart(ServiceInstance service) async {
         );
         await connectedDevice!.disconnect();
       }
-      connectionStateSubscription?.cancel(); // Cancel any old subscription
+      connectionStateSubscription?.cancel();
       connectedDevice = null;
       targetCharacteristic = null;
-      FlutterBluePlus.scanResults.drain(); // Clear previous scan results
-      // Access the current value of the isScanning stream using .first
-      if (await FlutterBluePlus.isScanning.first) {
-        debugPrint(
-          'Background service: Stopping any ongoing Bluetooth scan...',
-        );
-        await FlutterBluePlus.stopScan(); // Stop any ongoing scan
-      }
+      FlutterBluePlus.scanResults.drain();
 
+      // Start scan with timeout
       debugPrint(
         'Background service: Starting new Bluetooth scan for 15 seconds...',
       );
-      // Start a new Bluetooth scan with a timeout.
-      // We use `withRemoteIds` as empty to scan for all devices and then filter by name.
-      await FlutterBluePlus.startScan(
-        timeout: const Duration(seconds: 15),
-        withRemoteIds: [], // Scan for all devices, then filter by name
-      );
+      await FlutterBluePlus.startScan(timeout: const Duration(seconds: 15));
 
-      // Listen to the stream of scan results to find the target device.
-      // The `await for` loop will continue until `stopScan` is called or timeout.
-      await for (List<ScanResult> results in FlutterBluePlus.scanResults) {
-        for (ScanResult r in results) {
-          debugPrint(
-            'Background service: Found device: ${r.device.platformName}',
-          );
-          // Filter by platformName (advertised name) allowing for case-insensitive partial matches.
-          if (r.device.platformName.toLowerCase().contains(
-            deviceName!.toLowerCase(),
-          )) {
-            connectedDevice = r.device;
-            debugPrint(
-              'Background service: Target device "$deviceName" found!',
-            );
-            await FlutterBluePlus.stopScan(); // Device found, stop scanning immediately
-            break; // Exit inner loop (found device)
+      ScanResult? foundResult;
+      late StreamSubscription scanSub;
+      try {
+        scanSub = FlutterBluePlus.scanResults.listen((results) {
+          for (final r in results) {
+            if (r.device.platformName.toLowerCase() ==
+                deviceName!.toLowerCase()) {
+              foundResult = r;
+            }
           }
+        });
+
+        final start = DateTime.now();
+        connectedDevice = foundResult?.device;
+
+        // --- Connect to the discov
+        while (foundResult == null &&
+            DateTime.now().difference(start) < const Duration(seconds: 15)) {
+          await Future.delayed(const Duration(milliseconds: 200));
         }
-        if (connectedDevice != null) {
-          break; // Exit outer stream listening loop (device found)
-        }
+      } finally {
+        await FlutterBluePlus.stopScan();
+        await scanSub.cancel();
       }
 
-      // If the device was not found after the scan, stop the service.
-      if (connectedDevice == null) {
+      if (foundResult == null) {
         service.invoke('updateUI', {
-          'status': 'Device "$deviceName" not found after scan.',
+          'status': 'BLT: non, GPS: non',
+          'btData': 'Aucune donnée',
+          'locationData': 'Aucune donnée GPS',
+          'showToast': 'Erreur : Appareil "$deviceName" introuvable.',
+          'isScanning': false,
         });
         service.invoke('stopService');
-        debugPrint(
-          'Background service: Target device not found, stopping service.',
-        );
         return;
       }
+
+      connectedDevice = foundResult?.device;
 
       // --- Connect to the discovered device ---
       debugPrint(
@@ -299,7 +299,8 @@ void onStart(ServiceInstance service) async {
       );
       await connectedDevice!.connect(autoConnect: false);
       service.invoke('updateUI', {
-        'status': 'Connected to $deviceName. Discovering services...',
+        'status': 'Connexion à $deviceName. Initialisation...',
+        'isScanning': false, // Scanning is no longer active
       });
       debugPrint('Background service: Connected. Discovering services...');
 
@@ -312,15 +313,88 @@ void onStart(ServiceInstance service) async {
           'Background service: Device connection state changed to: $state',
         );
         if (state == BluetoothConnectionState.disconnected) {
+          isReconnecting = true;
+          reconnectionAttempts++; // <-- Increment on each attempt
+
           service.invoke('updateUI', {
-            'status': '$deviceName disconnected. Stopping logging.',
+            'status': 'Connexion perdue',
+            'btData': 'Déconnecté',
+            'locationData': 'Aucune donnée GPS',
+            'showToast':
+                'Erreur : $deviceName déconnecté. Tentative de reconnexion...',
+            'isScanning': true,
           });
+
           debugPrint(
-            'Background service: Device disconnected. Stopping service.',
+            'Background service: Device disconnected. Trying to reconnect... (attempt $reconnectionAttempts)',
           );
-          service.invoke(
-            'stopService',
-          ); // Stop service on unexpected disconnection
+
+          bool reconnected = false;
+          String reconnectMsg = '';
+          try {
+            await connectedDevice!.connect(
+              autoConnect: false,
+              timeout: const Duration(seconds: 10),
+            );
+            // Redécouvre les services et la caractéristique
+            List<BluetoothService> services = await connectedDevice!
+                .discoverServices();
+            for (var s in services) {
+              if (s.uuid == SERVICE_UUID) {
+                for (var c in s.characteristics) {
+                  if (c.uuid == CHARACTERISTIC_UUID) {
+                    targetCharacteristic = c;
+                    break;
+                  }
+                }
+              }
+            }
+            if (targetCharacteristic != null) {
+              reconnected = true;
+              reconnectMsg = 'Reconnexion réussie à $deviceName.';
+              reconnectionAttempts = 0; // <-- Reset on success
+              service.invoke('updateUI', {
+                'status': 'Reconnexion réussie à $deviceName.',
+                'btData': 'Reconnecté',
+                'showToast': reconnectMsg,
+                'isScanning': false,
+              });
+            } else {
+              reconnectMsg =
+                  'Reconnexion échouée (caractéristique non trouvée).';
+              service.invoke('updateUI', {
+                'status': reconnectMsg,
+                'btData': 'Déconnecté',
+                'isScanning': false,
+              });
+            }
+          } catch (e) {
+            reconnectMsg = 'Reconnexion échouée à $deviceName.';
+            service.invoke('updateUI', {
+              'status': reconnectMsg,
+              'btData': 'Déconnecté',
+              'isScanning': false,
+            });
+          }
+          isReconnecting = false;
+          debugPrint('Background service: $reconnectMsg');
+
+          if (!reconnected) {
+            if (reconnectionAttempts >= 3) {
+              service.invoke('updateUI', {
+                'status': 'Échec de reconnexion après 3 tentatives.',
+                'btData': 'Déconnecté',
+                'locationData': 'Aucune donnée GPS',
+                'showToast': 'Impossible de se reconnecter après 3 essais.',
+                'isScanning': false,
+              });
+              await connectionStateSubscription
+                  ?.cancel(); // <-- Cancel the subscription
+              connectedDevice = null; // <-- Prevent further attempts
+              service.invoke('stopService');
+              return; // <-- Exit the listener
+            }
+          }
         }
       });
 
@@ -350,7 +424,7 @@ void onStart(ServiceInstance service) async {
       // If the target characteristic is not found, disconnect and stop the service.
       if (targetCharacteristic == null) {
         service.invoke('updateUI', {
-          'status': 'Characteristic not found on $deviceName.',
+          'status': 'Caractéristique non trouvée pour $deviceName.',
         });
         debugPrint(
           'Background service: Target characteristic not found. Disconnecting...',
@@ -363,17 +437,21 @@ void onStart(ServiceInstance service) async {
       // --- Start Periodic Data Collection & Logging ---
       // This timer will trigger the data collection function at a fixed interval.
       debugPrint('Background service: Starting periodic log timer.');
-      logTimer = Timer.periodic(const Duration(seconds: 1), (timer) async {
+      logTimer = Timer.periodic(const Duration(milliseconds: 500), (
+        timer,
+      ) async {
+        if (isReconnecting) {
+          // Skip data collection during reconnection
+          return;
+        }
         if (connectedDevice != null && targetCharacteristic != null) {
-          // Only proceed if device and characteristic are still valid.
           await _collectAndLogData(
             service,
             connectedDevice!,
             targetCharacteristic!,
-            csvFilePath, // Pass the session's CSV file path
+            csvFilePath,
           );
         } else {
-          // If for some reason device or characteristic becomes null, stop logging.
           service.invoke('updateUI', {
             'status':
                 'Error: Bluetooth device/characteristic unavailable. Stopping.',
@@ -386,18 +464,21 @@ void onStart(ServiceInstance service) async {
       });
 
       service.invoke('updateUI', {
-        'status': 'Connected & Logging every second.',
+        'status': 'Connecté. Journalisation toutes les 500ms.',
       });
       debugPrint('Background service: Logging successfully initiated.');
     } catch (e) {
       // Catch any errors during Bluetooth scanning, connection, or service discovery.
       service.invoke('updateUI', {
-        'status': 'Bluetooth Error: ${e.toString()}',
+        'status': 'Erreur Bluetooth : ${e.toString()}',
+        'btData': 'Aucune donnée',
+        'locationData': 'Aucune donnée GPS',
+        'showToast': 'Erreur Bluetooth : ${e.toString()}',
       });
       debugPrint(
         'Background service: Critical Bluetooth error during setup: $e',
       );
-      service.invoke('stopService'); // Stop service on critical Bluetooth error
+      service.invoke('stopService');
     }
   });
 }
@@ -517,9 +598,20 @@ Future<void> _collectAndLogData(
   service.invoke('updateUI', {
     // Provide a more concise status message for the UI, indicating if BT/GPS had errors.
     'status':
-        'BLT: ${btDataStr.contains("Error") ? "Error" : "OK"}, GPS: ${locationDataStr.contains("Error") ? "Error" : "OK"}',
-    'btData': btDataStr,
-    'locationData': locationDataStr,
+        'Bluetooth : ${btDataStr.contains("Error") || btDataStr.contains("Erreur") ? "Erreur" : "OK"}, GPS : ${locationDataStr.contains("Error") || locationDataStr.contains("Erreur") ? "Erreur" : "OK"}',
+    'btData': btDataStr
+        .replaceAll('Error', 'Erreur')
+        .replaceAll('Device disconnected.', 'Appareil déconnecté.')
+        .replaceAll('No data', 'Aucune donnée')
+        .replaceAll('Not enough bytes', 'Données Bluetooth incomplètes')
+        .replaceAll('Error reading BT data', 'Erreur de lecture Bluetooth'),
+    'locationData': locationDataStr
+        .replaceAll('Error', 'Erreur')
+        .replaceAll('No location data', 'Aucune donnée GPS')
+        .replaceAll(
+          'GPS service/permission disabled or denied.',
+          'Service GPS ou autorisation désactivés/refusés.',
+        ),
   });
   debugPrint('Background service: UI updated with latest data.');
 }
