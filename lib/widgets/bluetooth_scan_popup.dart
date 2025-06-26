@@ -1,10 +1,23 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:sensor_logging/utils.dart';
 
+/// A widget that displays a popup dialog for scanning and selecting Bluetooth devices.
+///
+/// This widget handles all the logic for:
+/// - Ensuring Bluetooth is enabled (and attempts to enable it if not)
+/// - Checking location permissions and GPS status (required for BLE scan on Android)
+/// - Scanning for devices whose name starts with 'VC_SENS'
+/// - Displaying a list of found devices and allowing the user to select one
+/// - Showing progress indicators and error messages as needed
 class BluetoothScanPopup extends StatefulWidget {
+  /// Whether a sensor is currently running/connected.
   final bool isRunning;
 
+  /// Callback when a device is selected from the scan results.
   final Function(BluetoothDevice device) onDeviceSelected;
 
   const BluetoothScanPopup({
@@ -20,7 +33,96 @@ class BluetoothScanPopup extends StatefulWidget {
 class _BluetoothScanPopupState extends State<BluetoothScanPopup> {
   BluetoothDevice? _connectedDevice;
 
-  void _showScanDialog(BuildContext context) {
+  /// Shows the scan dialog, handling all permission and adapter state checks.
+  void _showScanDialog(BuildContext context) async {
+    // Check Bluetooth adapter state before scanning
+    BluetoothAdapterState currentBluetoothState =
+        await FlutterBluePlus.adapterState.first;
+    debugPrint('UI: Current Bluetooth adapter state: $currentBluetoothState');
+
+    if (currentBluetoothState != BluetoothAdapterState.on) {
+      Utils.showSnackBar(
+        'Bluetooth is OFF. Attempting to turn on Bluetooth...',
+        context,
+      );
+      debugPrint('UI: Bluetooth is OFF, attempting to turn on...');
+      await FlutterBluePlus.turnOn();
+
+      // Wait for Bluetooth to turn ON, with timeout
+      try {
+        currentBluetoothState = await FlutterBluePlus.adapterState
+            .where((s) => s == BluetoothAdapterState.on)
+            .first
+            .timeout(const Duration(seconds: 10));
+        debugPrint('UI: Bluetooth adapter successfully turned ON.');
+      } on TimeoutException {
+        Utils.showSnackBar(
+          'Bluetooth did not turn on in time. Please enable it manually.',
+          context,
+        );
+        debugPrint('UI: Bluetooth did not turn on within timeout.');
+        return;
+      } catch (e) {
+        Utils.showSnackBar(
+          'Error turning on Bluetooth: $e. Please enable it manually.',
+          context,
+        );
+        debugPrint('UI: Error turning on Bluetooth: $e');
+        return;
+      }
+
+      if (currentBluetoothState != BluetoothAdapterState.on) {
+        Utils.showSnackBar(
+          'Bluetooth is still off despite attempt. Please enable it manually.',
+          context,
+        );
+        debugPrint(
+          'UI: Bluetooth state check failed even after turnOn attempt.',
+        );
+        return;
+      }
+    }
+
+    // Check for location permissions (required for BLE scan)
+    if (!(await Permission.locationAlways.isGranted ||
+        await Permission.locationWhenInUse.isGranted)) {
+      Utils.showSnackBar(
+        'Location permission (Always or While in Use) is required for GPS logging.',
+        context,
+      );
+      debugPrint('UI: Location permission denied.');
+      return;
+    }
+
+    // Check if GPS is enabled
+    if (!await Geolocator.isLocationServiceEnabled()) {
+      // Show dialog to prompt user to enable GPS
+      await showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('GPS désactivé'),
+          content: const Text(
+            'Le GPS est désactivé. Veuillez l\'activer dans les paramètres pour continuer.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                await Geolocator.openLocationSettings();
+                Navigator.of(context).pop();
+              },
+              child: const Text('Ouvrir les paramètres'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Annuler'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    // All checks passed, show the scan dialog
     showDialog(
       context: context,
       barrierDismissible: true,
@@ -50,6 +152,11 @@ class _BluetoothScanPopupState extends State<BluetoothScanPopup> {
   }
 }
 
+/// Internal dialog widget that performs the Bluetooth scan and displays results.
+///
+/// - Scans for devices whose name starts with 'VC_SENS'
+/// - Shows a progress indicator while scanning
+/// - Allows the user to refresh the scan or select a device
 class _BluetoothScanDialog extends StatefulWidget {
   final Function(BluetoothDevice device) onDeviceSelected;
   final BluetoothDevice? connectedDevice;
@@ -85,14 +192,108 @@ class _BluetoothScanDialogState extends State<_BluetoothScanDialog> {
     super.dispose();
   }
 
+  /// Starts the Bluetooth scan and updates the device list.
   Future<void> _startScan() async {
+    // Check Bluetooth adapter state before scanning
+    BluetoothAdapterState currentBluetoothState =
+        await FlutterBluePlus.adapterState.first;
+    debugPrint('UI: Current Bluetooth adapter state: $currentBluetoothState');
+
+    if (currentBluetoothState != BluetoothAdapterState.on) {
+      Utils.showSnackBar(
+        'Bluetooth is OFF. Attempting to turn on Bluetooth...',
+        context,
+      );
+      debugPrint('UI: Bluetooth is OFF, attempting to turn on...');
+      await FlutterBluePlus.turnOn();
+
+      // Wait for Bluetooth to turn ON, with timeout
+      try {
+        currentBluetoothState = await FlutterBluePlus.adapterState
+            .where((s) => s == BluetoothAdapterState.on)
+            .first
+            .timeout(const Duration(seconds: 10));
+        debugPrint('UI: Bluetooth adapter successfully turned ON.');
+      } on TimeoutException {
+        Utils.showSnackBar(
+          'Bluetooth did not turn on in time. Please enable it manually.',
+          context,
+        );
+        debugPrint('UI: Bluetooth did not turn on within timeout.');
+        return;
+      } catch (e) {
+        Utils.showSnackBar(
+          'Error turning on Bluetooth: $e. Please enable it manually.',
+          context,
+        );
+        debugPrint('UI: Error turning on Bluetooth: $e');
+        return;
+      }
+
+      if (currentBluetoothState != BluetoothAdapterState.on) {
+        Utils.showSnackBar(
+          'Bluetooth is still off despite attempt. Please enable it manually.',
+          context,
+        );
+        debugPrint(
+          'UI: Bluetooth state check failed even after turnOn attempt.',
+        );
+        return;
+      }
+    }
+
+    // Check for location permissions (required for BLE scan)
+    if (!(await Permission.locationAlways.isGranted ||
+        await Permission.locationWhenInUse.isGranted)) {
+      Utils.showSnackBar(
+        'Location permission (Always or While in Use) is required for GPS logging.',
+        context,
+      );
+      debugPrint('UI: Location permission denied.');
+      return;
+    }
+
+    // Check if GPS is enabled
+    if (!await Geolocator.isLocationServiceEnabled()) {
+      setState(() {
+        _devices = [];
+        _isScanning = false;
+      });
+      // Show dialog to prompt user to enable GPS
+      await showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('GPS désactivé'),
+          content: const Text(
+            'Le GPS est désactivé. Veuillez l\'activer dans les paramètres pour continuer.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                await Geolocator.openLocationSettings(); //open the location settings
+                Navigator.of(context).pop();
+              },
+              child: const Text('Ouvrir les paramètres'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Annuler'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
     setState(() {
       _devices = [];
       _isScanning = true;
     });
 
-    FlutterBluePlus.startScan(timeout: const Duration(seconds: 4));
+    // Start BLE scan for 5 seconds
+    FlutterBluePlus.startScan(timeout: const Duration(seconds: 5));
 
+    // Listen for scan results and filter for devices with name starting with 'VC_SENS'
     _scanSubscription?.cancel();
     _scanSubscription = FlutterBluePlus.scanResults.listen((results) {
       setState(() {
@@ -101,6 +302,7 @@ class _BluetoothScanDialogState extends State<_BluetoothScanDialog> {
             .where((d) => d.name.startsWith('VC_SENS'))
             .toSet()
             .toList();
+        // If a device is already connected and running, ensure it appears in the list
         if (widget.connectedDevice != null &&
             !_devices.contains(widget.connectedDevice) &&
             widget.isRunning &&
@@ -110,8 +312,9 @@ class _BluetoothScanDialogState extends State<_BluetoothScanDialog> {
       });
     });
 
+    // Stop scan after timeout and update UI
     _scanTimeout?.cancel();
-    _scanTimeout = Timer(const Duration(seconds: 4), () {
+    _scanTimeout = Timer(const Duration(seconds: 5), () {
       FlutterBluePlus.stopScan();
       setState(() {
         _isScanning = false;
@@ -144,6 +347,8 @@ class _BluetoothScanDialogState extends State<_BluetoothScanDialog> {
       ),
       content: SizedBox(
         width: double.maxFinite,
+        height:
+            MediaQuery.of(context).size.height * 0.2, // popup is 20% of screen height
         child: _isScanning && _devices.isEmpty
             ? const Center(
                 child: Padding(
@@ -161,7 +366,6 @@ class _BluetoothScanDialogState extends State<_BluetoothScanDialog> {
             : SingleChildScrollView(
                 child: ListView.separated(
                   shrinkWrap: true,
-
                   itemCount: _devices.length,
                   separatorBuilder: (_, __) => const Divider(height: 1),
                   itemBuilder: (context, index) {

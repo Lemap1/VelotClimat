@@ -11,6 +11,27 @@ import 'package:sensor_logging/bluetooth_connector_page.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:sensor_logging/utils.dart';
 
+/// Main entry point and background service logic for the VéloClimat app.
+///
+/// This file contains:
+/// - The main() function and app widget setup.
+/// - Initialization and configuration of the background service for sensor logging.
+/// - The background service entry point (`onStart`) which manages Bluetooth and GPS data collection,
+///   device connection, reconnection, and CSV logging.
+/// - Utility functions for CSV file management.
+/// - Lifecycle watcher to stop the service when the app is detached.
+///
+/// Features:
+/// - Connects to a Bluetooth sensor, reads environmental data, and logs it with GPS info.
+/// - Runs as a foreground service on Android for reliability.
+/// - Handles permissions, notifications, and reconnection logic.
+/// - Updates the UI in real time via service events.
+///
+/// Usage:
+/// - The app starts with `main()`, which initializes the background service and launches the UI.
+/// - The background service is started/stopped from the UI (see BluetoothConnectorPage).
+/// - All Bluetooth and GPS logic is handled in the background isolate for robust logging.
+
 // --- Background Service Configuration ---
 
 // IMPORTANT: Update these UUIDs if your sensor uses different ones
@@ -66,11 +87,13 @@ Future<void> initializeService() async {
   );
 }
 
-class ForegroundServiceType {}
-
-/// Helper to get Android SDK version
-
 /// The entry point for the background service. This code runs in an isolated Dart Isolate.
+///
+/// Handles:
+/// - Bluetooth device scanning, connection, and reconnection
+/// - Periodic reading of sensor data and GPS location
+/// - Logging to CSV file
+/// - Communicating status and data back to the UI
 @pragma('vm:entry-point')
 void onStart(ServiceInstance service) async {
   // Ensure Flutter plugins (like FlutterBluePlus and Geolocator) are initialized in this isolate.
@@ -90,7 +113,7 @@ void onStart(ServiceInstance service) async {
   String? csvFilePath; // Track the current session's CSV file
 
   bool isReconnecting = false;
-  int reconnectionAttempts = 0; // <-- Add this at the top of onStart
+  int reconnectionAttempts = 0;
 
   // --- Foreground/Background Mode Management for Android ---
   if (service is AndroidServiceInstance) {
@@ -195,7 +218,7 @@ void onStart(ServiceInstance service) async {
       return;
     }
     deviceName = data['deviceName'];
-    csvFilePath = data['csvFilePath']; // <-- Get the path from UI
+    csvFilePath = data['csvFilePath'];
 
     // Ensure CSV header for this session's file
     await _ensureCsvHeader(csvFilePath);
@@ -314,7 +337,7 @@ void onStart(ServiceInstance service) async {
         );
         if (state == BluetoothConnectionState.disconnected) {
           isReconnecting = true;
-          reconnectionAttempts++; // <-- Increment on each attempt
+          reconnectionAttempts++;
 
           service.invoke('updateUI', {
             'status': 'Connexion perdue',
@@ -352,7 +375,7 @@ void onStart(ServiceInstance service) async {
             if (targetCharacteristic != null) {
               reconnected = true;
               reconnectMsg = 'Reconnexion réussie à $deviceName.';
-              reconnectionAttempts = 0; // <-- Reset on success
+              reconnectionAttempts = 0;
               service.invoke('updateUI', {
                 'status': 'Reconnexion réussie à $deviceName.',
                 'btData': 'Reconnecté',
@@ -388,11 +411,10 @@ void onStart(ServiceInstance service) async {
                 'showToast': 'Impossible de se reconnecter après 3 essais.',
                 'isScanning': false,
               });
-              await connectionStateSubscription
-                  ?.cancel(); // <-- Cancel the subscription
-              connectedDevice = null; // <-- Prevent further attempts
+              await connectionStateSubscription?.cancel();
+              connectedDevice = null;
               service.invoke('stopService');
-              return; // <-- Exit the listener
+              return;
             }
           }
         }
@@ -676,7 +698,47 @@ class MyApp extends StatelessWidget {
         primarySwatch: Colors.blue,
         visualDensity: VisualDensity.adaptivePlatformDensity,
       ),
-      home: const BluetoothConnectorPage(), // No csvFilePath needed here
+      home: LifecycleWatcher(child: const BluetoothConnectorPage()),
     );
   }
+}
+
+/// Watches the app lifecycle and stops the background service when the app is detached.
+///
+/// This ensures that the background service does not continue running after the app is closed.
+class LifecycleWatcher extends StatefulWidget {
+  final Widget child;
+  const LifecycleWatcher({required this.child, super.key});
+
+  @override
+  State<LifecycleWatcher> createState() => _LifecycleWatcherState();
+}
+
+class _LifecycleWatcherState extends State<LifecycleWatcher>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.detached) {
+      // Stop the background service when the app is exited or detached.
+      debugPrint(
+        'LifecycleWatcher: App detached. Stopping background service.',
+      );
+      FlutterBackgroundService().invoke('stopService');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }

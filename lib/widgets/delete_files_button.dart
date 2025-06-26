@@ -3,8 +3,16 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sensor_logging/utils.dart';
 
+/// A button widget that allows the user to delete all locally stored CSV data files.
+///
+/// This widget displays an outlined button with a delete icon. When pressed,
+/// it shows a confirmation dialog to the user. If the user confirms, all CSV files
+/// in the app's storage directory are deleted. The button can be disabled (for example,
+/// when a sensor is connected) to prevent accidental deletion during critical operations.
 class DeleteFilesButton extends StatelessWidget {
+  /// If true, the button is disabled and cannot be pressed.
   final bool isDisabled;
+
   const DeleteFilesButton({super.key, this.isDisabled = false});
 
   @override
@@ -12,6 +20,7 @@ class DeleteFilesButton extends StatelessWidget {
     return Expanded(
       child: OutlinedButton.icon(
         onPressed: () {
+          // If the button is disabled, show a message and do nothing else.
           isDisabled
               ? Utils.showSnackBar(
                   "Suppression impossible lorsqu’un capteur est connecté.",
@@ -19,9 +28,9 @@ class DeleteFilesButton extends StatelessWidget {
                 )
               : showDialog<void>(
                   context: context,
-                  barrierDismissible:
-                      true, // <-- Allow closing when tapping outside
+                  barrierDismissible: true,
                   builder: (BuildContext context) {
+                    // Confirmation dialog before deleting files
                     return AlertDialog(
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(16),
@@ -98,6 +107,7 @@ class DeleteFilesButton extends StatelessWidget {
                             style: TextStyle(fontSize: 16),
                           ),
                           onPressed: () {
+                            // Perform the deletion of all files
                             deleteAllFiles(context);
 
                             Navigator.of(context).pop();
@@ -124,9 +134,10 @@ class DeleteFilesButton extends StatelessWidget {
     );
   }
 
+  /// Deletes all CSV and ZIP files in the app's storage directory.
   Future<void> deleteAllFiles(BuildContext context) async {
     List<File> allCsvFiles = await Utils.getAllCsvFiles();
-    //use archive plugin to zip all csv files
+    // Use archive plugin to zip all csv files (not used here, just a comment)
     if (allCsvFiles.isEmpty) {
       Utils.showSnackBar('Aucune donnée à supprimer', context);
       return;
@@ -136,6 +147,7 @@ class DeleteFilesButton extends StatelessWidget {
         try {
           await file.delete();
         } catch (e) {
+          // Notify the user if a file could not be deleted
           Utils.showSnackBar(
             'Erreur lors de la suppression du fichier ${file.path}: $e',
             context,
@@ -143,6 +155,7 @@ class DeleteFilesButton extends StatelessWidget {
         }
       }
 
+      // Also delete the zip file if it exists
       Directory? directory;
       if (Platform.isAndroid) {
         directory = await getExternalStorageDirectory();

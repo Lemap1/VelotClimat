@@ -1,4 +1,5 @@
 // --- UI (Page) ---
+
 import 'dart:async';
 import 'dart:io';
 
@@ -16,6 +17,8 @@ import 'package:sensor_logging/widgets/live_status_card.dart';
 import 'package:sensor_logging/widgets/log_table.dart';
 import 'package:sensor_logging/widgets/share_data_button.dart';
 
+/// The main page widget for connecting to a Bluetooth sensor, starting/stopping logging,
+/// and displaying live sensor data and logs.
 class BluetoothConnectorPage extends StatefulWidget {
   const BluetoothConnectorPage({super.key});
 
@@ -45,7 +48,7 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
   StreamSubscription<BluetoothAdapterState>? _adapterStateSubscription;
 
   String? _currentCsvFilePath; // Track the current session's CSV file path
-  bool _isConnecting = false; // <-- Ajouté
+  bool _isConnecting = false; 
 
   @override
   void initState() {
@@ -109,7 +112,6 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
         _connectionStatus = data['status'] ?? _connectionStatus;
         _characteristicData = data['btData'] ?? _characteristicData;
         _locationData = data['locationData'] ?? _locationData;
-        // <-- Ajout : met à jour _isConnecting selon isScanning
         if (data.containsKey('isScanning')) {
           _isConnecting = data['isScanning'] == true;
         }
@@ -119,7 +121,7 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
             : _isServiceRunning;
         disableDeleteButton = data['status'] == 'Service arrêté' ? false : true;
       });
-      // Affiche le toast si demandé
+      // Show a toast if requested
       if (data['showToast'] != null &&
           data['showToast'].toString().isNotEmpty) {
         Utils.showSnackBar(data['showToast'].toString(), context);
@@ -139,7 +141,7 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
         _characteristicData = 'Aucune donnée';
         _locationData = 'Aucune donnée GPS';
         disableDeleteButton = false;
-        _isConnecting = false; // Toujours désactiver le loader à l'arrêt
+        _isConnecting = false; // Always disable loader on stop
       });
     });
   }
@@ -166,7 +168,7 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
     }
     debugPrint('UI: Start Logging button pressed.');
     setState(() {
-      _isConnecting = true; // <-- Ajouté
+      _isConnecting = true; 
     });
 
     await Utils.requestPermissions();
@@ -241,11 +243,11 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
         return;
       }
     }
-    if (!await Geolocator.isLocationServiceEnabled()) {
+    if (!await Geolocator.isLocationServiceEnabled()) {//check if GPS is not enabled
       setState(() {
         _isConnecting = false;
       });
-      // Affiche une boîte de dialogue pour demander d'activer le GPS
+      // Display a dialog to inform the user that GPS is disabled
       await showDialog(
         context: context,
         builder: (context) => AlertDialog(
@@ -256,7 +258,7 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
           actions: [
             TextButton(
               onPressed: () async {
-                await Geolocator.openLocationSettings();
+                await Geolocator.openLocationSettings(); // Open location settings
                 Navigator.of(context).pop();
               },
               child: const Text('Ouvrir les paramètres'),
@@ -321,7 +323,7 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
         _isServiceRunning = true;
         _connectionStatus = 'Starting Service...';
         disableDeleteButton = true;
-        _isConnecting = false; // <-- Ajouté
+        _isConnecting = false; 
       });
       Utils.showSnackBar('Logging started.', context);
     } catch (e) {
@@ -331,7 +333,7 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
         _isServiceRunning = false;
         _connectionStatus = 'Service Start Failed';
         disableDeleteButton = false;
-        _isConnecting = false; // <-- Ajouté
+        _isConnecting = false; 
       });
     }
   }
@@ -344,7 +346,7 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
       _isServiceRunning = false;
       _connectionStatus = 'Stopped';
       disableDeleteButton = false;
-      _isConnecting = false; // <-- Ajouté
+      _isConnecting = false; 
     });
 
     Utils.showSnackBar('Logging stopped.', context);
@@ -385,10 +387,11 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
       setState(() => _csvLines = ['Error reading log file: $e']);
       debugPrint(
         'UI: Error reading CSV file: $e',
-      ); // Log the error for debugging
+      );
     }
   }
 
+  /// Extracts the temperature value from the characteristic data.
   String? get temperature {
     final match = RegExp(
       r'Temp[:=]?\s*([-\d.]+)',
@@ -396,6 +399,7 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
     return match != null ? '${match.group(1)}°C' : null;
   }
 
+  /// Extracts the humidity value from the characteristic data.
   String? get humidity {
     final match = RegExp(
       r'Hum[:=]?\s*([-\d.]+)',
@@ -403,6 +407,7 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
     return match != null ? '${match.group(1)}%' : null;
   }
 
+  /// Extracts the latitude and formats it to two decimal places.
   String? get latitude {
     final match = RegExp(r'Lat[:=]?\s*([-\d.]+)').firstMatch(_locationData);
     if (match != null) {
@@ -414,6 +419,7 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
     return null;
   }
 
+  /// Extracts the longitude and formats it to two decimal places.
   String? get longitude {
     final match = RegExp(r'(Lon)[:=]?\s*([-\d.]+)').firstMatch(_locationData);
     if (match != null) {
@@ -429,16 +435,15 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('VéloClimat'), // <-- FR
-        elevation: 4, // Add a slight shadow to the app bar for depth
+        title: const Text('VéloClimat'),
+        elevation: 4,
       ),
       body: SingleChildScrollView(
-        // Use SingleChildScrollView to prevent content overflow on smaller screens
         padding: const EdgeInsets.all(16.0),
         child: Column(
-          mainAxisSize: MainAxisSize.min, // Use min to fit content
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment:
-              CrossAxisAlignment.stretch, // Stretch children horizontally
+              CrossAxisAlignment.stretch,
           children: [
             Row(
               mainAxisSize: MainAxisSize.min,
@@ -468,10 +473,10 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
                           : device.id.toString();
                     });
                     if (_isServiceRunning) {
-                      //if a connection to a sensor is already in progress stop it
+                      // If a connection to a sensor is already in progress, stop it
                       _stopLogging();
                     }
-                    _startLogging(); //start a connection to the selected device.
+                    _startLogging(); // Start a connection to the selected device.
                   },
                 ),
               ],

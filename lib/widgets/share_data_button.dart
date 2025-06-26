@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:sensor_logging/utils.dart';
 import 'package:share_plus/share_plus.dart';
 
+/// A button widget that allows the user to share all locally stored CSV data files as a ZIP archive.
 class ShareDataButton extends StatelessWidget {
   const ShareDataButton({super.key});
 
@@ -11,8 +12,10 @@ class ShareDataButton extends StatelessWidget {
       child: OutlinedButton.icon(
         onPressed: () async {
           try {
+            // Attempt to zip all CSV files in the app's storage directory
             final zipFile = await Utils.zipAllCsv();
             if (zipFile != null) {
+              // If a ZIP file was created, open the system share dialog
               await SharePlus.instance.share(
                 ShareParams(files: [XFile(zipFile.path)]),
               );

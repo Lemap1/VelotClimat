@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 
+/// A widget that displays CSV log data in a scrollable table format.
 class LogTable extends StatelessWidget {
+  /// List of CSV lines, including the header as the first line.
   final List<String> csvLines;
+
   const LogTable({super.key, required this.csvLines});
 
   @override
@@ -32,6 +35,7 @@ class LogTable extends StatelessWidget {
             const DataColumn(label: Text('Hum')),
             const DataColumn(label: Text('Lat')),
             const DataColumn(label: Text('Lon')),
+            // Custom header cell with rounded top-right corner
             DataColumn(
               label: ClipRRect(
                 borderRadius: const BorderRadius.only(
@@ -49,12 +53,13 @@ class LogTable extends StatelessWidget {
             ),
           ],
           rows: csvLines
-              .skip(1) // skip header
+              .skip(1) // Skip header row
               .where((line) => line.trim().isNotEmpty)
               .toList()
-              .reversed // latest first
+              .reversed // Show latest entries first
               .map((line) {
                 final cells = line.split(',');
+                // Ensure there are at least 6 cells per row
                 while (cells.length < 6) {
                   cells.add('--');
                 }
