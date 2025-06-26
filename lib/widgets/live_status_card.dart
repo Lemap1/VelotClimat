@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 
 class LiveStatusCard extends StatelessWidget {
-  final String connectionStatus; // Example status
-  final String? temperature; // Example temperature data
-  final String? humidity; // Example humidity data
-  final String? latitude; // Example latitude data
-  final String? longitude; // Example longitude data
+  final String connectionStatus; // Connection status
+  final String? temperature; // Temperature data
+  final String? humidity; // Humidity data
+  final String? latitude; // Latitude data
+  final String? longitude; // Longitude data
 
   const LiveStatusCard({
     super.key,
@@ -50,13 +50,13 @@ class LiveStatusCard extends StatelessWidget {
                   color: Colors.blue.shade700,
                 ),
                 _buildBigData(
-                  icon: Icons.north, // Different icon for latitude
+                  icon: Icons.north,
                   label: 'Lat',
                   value: latitude ?? '--',
                   color: Colors.green.shade700,
                 ),
                 _buildBigData(
-                  icon: Icons.east, // Different icon for longitude
+                  icon: Icons.east,
                   label: 'Lon',
                   value: longitude ?? '--',
                   color: Colors.green.shade700,

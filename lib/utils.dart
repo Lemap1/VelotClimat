@@ -6,11 +6,17 @@ import 'package:fluttertoast/fluttertoast.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+/// Utility class providing static helper methods for permissions, file management,
+/// and user notifications in the sensor logging app.
+
 class Utils {
   static String? csvPath;
 
   /// Requests essential permissions for the app: Notifications (for Android 13+),
   /// Bluetooth (for Android 12+), Location (Always/WhileInUse), and Storage.
+  /// This method checks and requests all permissions required for Bluetooth scanning,
+  /// background operation, and file storage. It handles Android-specific permission
+  /// requirements for newer versions.
   static Future<void> requestPermissions() async {
     debugPrint('Requesting permissions...');
 
@@ -75,6 +81,7 @@ class Utils {
   /// Determines the file path for the CSV log.
   /// On Android, it uses `getExternalStorageDirectory` for easier user access.
   /// On iOS, it uses `getApplicationDocumentsDirectory`.
+  /// Returns a unique file path for the CSV log, creating it if necessary.
   static Future<String> get csvFilePath async {
     Directory? directory;
 
@@ -99,6 +106,7 @@ class Utils {
   }
 
   /// Generates a unique CSV file path using the device name and current timestamp.
+  /// The device name is sanitized for file system compatibility.
   static Future<String> generateCsvFilePath(String deviceName) async {
     Directory? directory;
     if (Platform.isAndroid) {
@@ -115,7 +123,8 @@ class Utils {
     return '${directory.path}/${safeDeviceName}_$timestamp.csv';
   }
 
-  /// Generates a unique CSV file path using the device name and current timestamp.
+  /// Returns a list of all CSV files in the app's storage directory.
+  /// Used for listing, deleting, or zipping all log files.
   static Future<List<File>> getAllCsvFiles() async {
     Directory? directory;
     if (Platform.isAndroid) {
@@ -132,6 +141,9 @@ class Utils {
     }).toList();
   }
 
+  /// Zips all CSV files in the app's storage directory and returns the ZIP file.
+  /// Returns `null` if there are no CSV files to zip.
+  /// The ZIP file is created in the same directory as the CSV files.
   static Future<File?> zipAllCsv() async {
     List<File> allCsvFiles = await getAllCsvFiles();
     if (allCsvFiles.isEmpty) {
@@ -165,6 +177,8 @@ class Utils {
   }
 
   /// Displays a SnackBar message at the bottom of the screen.
+  /// Uses [Fluttertoast] to show a toast message. If the widget is not mounted,
+  /// the message is not shown.
   static void showSnackBar(String message, BuildContext context) {
     if (!context.mounted) {
       debugPrint(
