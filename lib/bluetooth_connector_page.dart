@@ -48,7 +48,7 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
   StreamSubscription<BluetoothAdapterState>? _adapterStateSubscription;
 
   String? _currentCsvFilePath; // Track the current session's CSV file path
-  bool _isConnecting = false; 
+  bool _isConnecting = false;
 
   @override
   void initState() {
@@ -168,7 +168,7 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
     }
     debugPrint('UI: Start Logging button pressed.');
     setState(() {
-      _isConnecting = true; 
+      _isConnecting = true;
     });
 
     await Utils.requestPermissions();
@@ -243,7 +243,8 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
         return;
       }
     }
-    if (!await Geolocator.isLocationServiceEnabled()) {//check if GPS is not enabled
+    if (!await Geolocator.isLocationServiceEnabled()) {
+      //check if GPS is not enabled
       setState(() {
         _isConnecting = false;
       });
@@ -323,17 +324,20 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
         _isServiceRunning = true;
         _connectionStatus = 'Starting Service...';
         disableDeleteButton = true;
-        _isConnecting = false; 
+        _isConnecting = false;
       });
-      Utils.showSnackBar('Logging started.', context);
+      Utils.showSnackBar('Démarrage de l\'enregistrement.', context);
     } catch (e) {
-      Utils.showSnackBar('Failed to start service: ${e.toString()}', context);
-      debugPrint('UI: Failed to start service: $e');
+      Utils.showSnackBar(
+        'Échec du démarrage du service: ${e.toString()}',
+        context,
+      );
+      debugPrint('UI: Échec du démarrage du service: $e');
       setState(() {
         _isServiceRunning = false;
-        _connectionStatus = 'Service Start Failed';
+        _connectionStatus = 'Échec du démarrage du service';
         disableDeleteButton = false;
-        _isConnecting = false; 
+        _isConnecting = false;
       });
     }
   }
@@ -346,7 +350,7 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
       _isServiceRunning = false;
       _connectionStatus = 'Stopped';
       disableDeleteButton = false;
-      _isConnecting = false; 
+      _isConnecting = false;
     });
 
     Utils.showSnackBar('Logging stopped.', context);
@@ -385,9 +389,7 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
       }
     } catch (e) {
       setState(() => _csvLines = ['Error reading log file: $e']);
-      debugPrint(
-        'UI: Error reading CSV file: $e',
-      );
+      debugPrint('UI: Error reading CSV file: $e');
     }
   }
 
@@ -434,16 +436,12 @@ class _BluetoothConnectorPageState extends State<BluetoothConnectorPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('VéloClimat'),
-        elevation: 4,
-      ),
+      appBar: AppBar(title: const Text('VéloClimat'), elevation: 4),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment:
-              CrossAxisAlignment.stretch,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Row(
               mainAxisSize: MainAxisSize.min,

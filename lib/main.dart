@@ -476,7 +476,7 @@ void onStart(ServiceInstance service) async {
         } else {
           service.invoke('updateUI', {
             'status':
-                'Error: Bluetooth device/characteristic unavailable. Stopping.',
+                'Erreur: appareil/charactéristiques Bluetooth non disponibles. Arrêt.',
           });
           debugPrint(
             'Background service: Device or characteristic became null during logging. Stopping.',
